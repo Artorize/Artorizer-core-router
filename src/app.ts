@@ -1,0 +1,89 @@
+import Fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
+import { config } from './config';
+import { getDuplicateService } from './services/duplicate.service';
+import { protectRoute } from './routes/protect';
+
+export async function buildApp(): Promise<FastifyInstance> {
+  const app = Fastify({
+    logger: {
+      level: config.nodeEnv === 'production' ? 'info' : 'debug',
+      transport:
+        config.nodeEnv === 'development'
+          ? {
+              target: 'pino-pretty',
+              options: {
+                colorize: true,
+                translateTime: 'HH:MM:ss',
+                ignore: 'pid,hostname',
+              },
+            }
+          : undefined,
+    },
+    requestIdLogLabel: 'reqId',
+    disableRequestLogging: false,
+    trustProxy: true,
+  });
+
+  // CORS
+  await app.register(cors, {
+    origin: true,
+    credentials: true,
+  });
+
+  // Multipart file upload
+  await app.register(multipart, {
+    limits: {
+      fileSize: config.upload.maxFileSize,
+      files: 1,
+    },
+    attachFieldsToBody: true,
+  });
+
+  // Health check
+  app.get('/health', async () => {
+    return {
+      ok: true,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    };
+  });
+
+  // Register routes
+  app.register(protectRoute);
+
+  // Error handler
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error(error);
+
+    const statusCode = (error as any).statusCode || 500;
+    const message = statusCode === 500 ? 'Internal server error' : error.message;
+
+    reply.status(statusCode).send({
+      error: message,
+      statusCode,
+    });
+  });
+
+  // Not found handler
+  app.setNotFoundHandler((_, reply) => {
+    reply.status(404).send({
+      error: 'Route not found',
+      statusCode: 404,
+    });
+  });
+
+  return app;
+}
+
+// Graceful shutdown
+export async function closeApp(app: FastifyInstance): Promise<void> {
+  try {
+    await app.close();
+    await getDuplicateService().disconnect();
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+    process.exit(1);
+  }
+}

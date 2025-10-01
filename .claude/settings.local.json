@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(for:*)",
+      "Bash(do [ -f \"$file\" ])",
+      "Bash(echo \"=== $file ===\")",
+      "Bash(cat:*)",
+      "Bash(done)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
