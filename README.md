@@ -277,6 +277,20 @@ src/
 - `npm start` - Production server
 - `npm run clean` - Remove dist folder
 
+## Documentation
+
+### Complete API Reference
+
+For comprehensive documentation including all endpoints, parameters, examples, and error handling:
+
+📖 **[API Reference](docs/api-reference.md)** - Complete endpoint documentation with examples
+
+### Additional Documentation
+
+- **[Processor API](docs/documentation-processor.md)** - Processor core endpoints and async callback mode
+- **[Architecture Design](mod-processor.md)** - Async callback pattern and optimization strategies
+- **[Project Instructions](CLAUDE.md)** - Development guidelines and architecture overview
+
 ## License
 
 Private - Artorizer Project
