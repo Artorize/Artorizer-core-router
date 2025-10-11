@@ -10,6 +10,8 @@ import {
 } from '../utils/normalize';
 import { getDuplicateService } from '../services/duplicate.service';
 import { getProcessorService } from '../services/processor.service';
+import { getBackendService } from '../services/backend.service';
+import { config } from '../config';
 
 interface MultipartBody {
   [key: string]: {
@@ -152,25 +154,48 @@ export async function protectRoute(app: FastifyInstance) {
         });
       }
 
-      // Submit to processor
+      // Generate UUID for job
+      const jobId = crypto.randomUUID();
+
+      // Generate callback URL
+      const callbackUrl = `${config.router.baseUrl}/callbacks/process-complete`;
+      const callbackAuthToken = config.router.callbackAuthToken;
+
+      // Generate one-time authentication token for processor-to-backend upload
+      const backendService = getBackendService();
+      const tokenData = await backendService.generateToken({
+        source: 'router',
+        jobId: jobId,
+      });
+
+      request.log.info(
+        {
+          job_id: jobId,
+          token_id: tokenData.tokenId,
+          expires_at: tokenData.expiresAt
+        },
+        'Generated one-time backend auth token for processor upload'
+      );
+
+      // Submit to processor with callback and backend auth token
       const processorService = getProcessorService();
+      await processorService.submitJobWithCallback(
+        jobId,
+        validatedPayload,
+        imageBuffer,
+        imageFilename,
+        callbackUrl,
+        callbackAuthToken,
+        tokenData.token
+      );
 
-      let response;
-      if (imageBuffer) {
-        // Submit with file
-        response = await processorService.submitJobMultipart(
-          validatedPayload,
-          imageBuffer,
-          imageFilename!
-        );
-      } else {
-        // Submit JSON only (for image_url or local_path)
-        response = await processorService.submitJobJSON(validatedPayload);
-      }
+      request.log.info({ job_id: jobId, callback_url: callbackUrl }, 'Job submitted to processor with callback');
 
-      request.log.info({ job_id: response.job_id }, 'Job submitted to processor');
-
-      return reply.status(202).send(response);
+      return reply.status(202).send({
+        job_id: jobId,
+        status: 'processing',
+        message: 'Job queued for processing. Results will be available via callback.',
+      });
     } catch (error: any) {
       request.log.error(error, 'Error processing protect request');
 

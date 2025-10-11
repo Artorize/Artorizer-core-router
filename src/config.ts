@@ -8,10 +8,6 @@ const configSchema = z.object({
   nodeEnv: z.enum(['development', 'production', 'test']).default('development'),
   workers: z.coerce.number().default(4),
 
-  mongodb: z.object({
-    uri: z.string().default('mongodb://localhost:27017/artorizer_storage'),
-  }),
-
   redis: z.object({
     host: z.string().default('localhost'),
     port: z.coerce.number().default(6379),
@@ -21,6 +17,16 @@ const configSchema = z.object({
   processor: z.object({
     url: z.string().default('http://localhost:8000'),
     timeout: z.coerce.number().default(30000),
+  }),
+
+  backend: z.object({
+    url: z.string().default('http://localhost:3000'),
+    timeout: z.coerce.number().default(30000),
+  }),
+
+  router: z.object({
+    baseUrl: z.string().default('http://localhost:7000'),
+    callbackAuthToken: z.string().default('default-insecure-token-change-me'),
   }),
 
   rateLimit: z.object({
@@ -38,10 +44,6 @@ export const config = configSchema.parse({
   nodeEnv: process.env.NODE_ENV,
   workers: process.env.WORKERS,
 
-  mongodb: {
-    uri: process.env.MONGODB_URI,
-  },
-
   redis: {
     host: process.env.REDIS_HOST,
     port: process.env.REDIS_PORT,
@@ -51,6 +53,16 @@ export const config = configSchema.parse({
   processor: {
     url: process.env.PROCESSOR_URL,
     timeout: process.env.PROCESSOR_TIMEOUT,
+  },
+
+  backend: {
+    url: process.env.BACKEND_URL,
+    timeout: process.env.BACKEND_TIMEOUT,
+  },
+
+  router: {
+    baseUrl: process.env.ROUTER_BASE_URL,
+    callbackAuthToken: process.env.CALLBACK_AUTH_TOKEN,
   },
 
   rateLimit: {

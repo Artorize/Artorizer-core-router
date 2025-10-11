@@ -8,9 +8,19 @@ Artorizer Core Router is a high-performance ingress API for the Artorizer image 
 
 **Architecture Flow:**
 ```
-Frontend → CDN → Router (this) → Processor Core
-                    ↓
-                 Storage DB (duplicate check)
+Client → Router POST /protect → Processor POST /v1/process/artwork
+          ↓                       (includes backend_url in metadata)
+    Check Backend API                    ↓
+    (duplicates)                  Processes image
+                                         ↓
+                              Processor POST /artworks → Backend (GridFS + MongoDB)
+                                         ↓
+                              Processor sends callback with backend artwork_id
+                                         ↓
+                              Router POST /callbacks/process-complete
+                                  (receives artwork_id)
+                                         ↓
+                              Client queries: GET /jobs/{id} (via Backend API)
 ```
 
 ## Common Commands
@@ -49,8 +59,10 @@ The clustering is implemented in `src/index.ts`. When `WORKERS > 1`, the primary
 3. **Routing** (`src/routes/protect.ts`): Main `/protect` endpoint logic
 4. **Validation** (`src/types/schemas.ts`): Zod schemas for type-safe validation
 5. **Services**:
-   - `duplicate.service.ts`: MongoDB duplicate detection by checksum/title/artist
-   - `processor.service.ts`: HTTP client with circuit breaker (opens after 5 failures, resets after 30s)
+   - `duplicate.service.ts`: Backend API client for duplicate detection + artwork queries
+   - `processor.service.ts`: HTTP client with circuit breaker + callback-based workflow (includes backend URL for direct upload)
+   - `backend.service.ts`: HTTP client for backend interactions (not used in optimized flow - processor uploads directly)
+   - `upload.service.ts`: Deprecated - no longer needed (processor uploads directly to backend)
    - `queue.service.ts`: Bull/Redis queue (prepared for future async processing)
 6. **Utilities** (`src/utils/normalize.ts`): Field normalization (camelCase ↔ snake_case), boolean parsing, tag validation
 
@@ -62,9 +74,11 @@ Request → Content-type detection (multipart/JSON)
        → Field normalization (camelCase → snake_case)
        → Boolean/array parsing ("true" → true, "a,b" → ["a","b"])
        → Zod validation
-       → Duplicate check (MongoDB: checksum → title+artist → tags)
+       → Duplicate check (Backend API: checksum → title+artist → tags)
        → If duplicate: return existing artwork (200)
-       → If new: submit to processor (202)
+       → If new: submit to processor with backend_url (202)
+       → Processor processes and uploads directly to backend
+       → Processor sends callback with backend artwork_id
 ```
 
 ### Circuit Breaker Pattern
@@ -81,9 +95,13 @@ This prevents cascade failures when the processor is down.
 All config is in `src/config.ts` using Zod validation. Environment variables:
 
 **Required External Services:**
-- `MONGODB_URI`: For duplicate detection storage
-- `REDIS_HOST`, `REDIS_PORT`: For Bull queue (future async processing)
+- `BACKEND_URL`: Backend storage API endpoint - handles all database operations (default: `http://localhost:3000`)
 - `PROCESSOR_URL`: Processor core API endpoint (default: `http://localhost:8000`)
+- `REDIS_HOST`, `REDIS_PORT`: For Bull queue (future async processing)
+
+**Router Configuration:**
+- `ROUTER_BASE_URL`: Router's own base URL for callback (default: `http://localhost:7000`)
+- `CALLBACK_AUTH_TOKEN`: Secret token for validating processor callbacks
 
 **Performance Tuning:**
 - `WORKERS`: Number of worker processes (default: 4)
@@ -92,7 +110,7 @@ All config is in `src/config.ts` using Zod validation. Environment variables:
 
 See `.env.example` for all available options.
 
-## API Endpoint
+## API Endpoints
 
 ### POST /protect
 
@@ -109,6 +127,60 @@ Accepts `multipart/form-data` or `application/json`.
 - `400 Bad Request`: Validation error
 - `502 Bad Gateway`: Processor error
 - `503 Service Unavailable`: Circuit breaker open
+
+### POST /callbacks/process-complete
+
+Receives async completion callback from processor after it uploads artwork to backend.
+
+**Authorization:** Validates `Authorization` header against `CALLBACK_AUTH_TOKEN`
+
+**Request body:**
+```json
+{
+  "job_id": "uuid",
+  "status": "completed|failed",
+  "backend_artwork_id": "60f7b3b3b3b3b3b3b3b3b3b3",
+  "processing_time_ms": 1234,
+  "result": {
+    "hashes": { "perceptual_hash": "0x...", ... },
+    "metadata": { "artist_name": "...", "artwork_title": "..." },
+    "watermark": { "strategy": "tree-ring", ... }
+  }
+}
+```
+
+**Processing:**
+1. Validates authorization token
+2. Logs job completion with backend artwork ID
+3. Returns acknowledgment (no file transfers needed)
+
+**Response:**
+- `200 OK`: `{"received": true, "job_id": "...", "artwork_id": "...", "status": "completed"}`
+- `401 Unauthorized`: Invalid auth token
+- `400 Bad Request`: Missing backend_artwork_id (processor should upload to backend first)
+
+### GET /jobs/{id}
+
+Get job status.
+
+**Response:**
+- `200 OK`: `{"job_id": "...", "status": "completed", "completedAt": "...", "uploadedAt": "..."}`
+- `404 Not Found`: Job doesn't exist
+
+### GET /jobs/{id}/result
+
+Get complete job result with backend URLs.
+
+**Response:**
+- `200 OK`: Full artwork metadata + URLs to backend files
+- `404 Not Found`: Job doesn't exist
+- `409 Conflict`: Job not yet completed
+
+### GET /jobs/{id}/download/{variant}
+
+Proxy download from backend. Redirects (307) to backend storage URL.
+
+**Variants:** `original`, `protected`, `mask_hi`, `mask_lo`
 
 ## Field Normalization
 
@@ -137,16 +209,18 @@ Uses Sharp for image validation:
 3. Calculate SHA256 checksum for duplicate detection
 4. Forward buffer to processor via multipart
 
-## MongoDB Duplicate Detection
+## Duplicate Detection via Backend API
 
-`duplicate.service.ts` uses singleton pattern with connection pooling (min: 5, max: 20).
+`duplicate.service.ts` is an HTTP client that queries the backend API for duplicate checking and artwork retrieval.
+
+**Backend API endpoint:** `GET /artworks/check-exists`
 
 **Search strategies (in order):**
 1. By checksum (if provided)
 2. By title + artist (exact match)
 3. By tags (array intersection)
 
-Returns first match found. Queries are indexed for performance.
+Returns first match found. The backend handles all database operations, indexing, and query optimization.
 
 ## Error Handling
 
@@ -182,9 +256,8 @@ Key libraries:
 - **Fastify**: HTTP server (chosen for performance)
 - **Zod**: Runtime validation
 - **Sharp**: Image processing/validation
-- **MongoDB**: Duplicate detection storage
+- **Undici**: Fast HTTP client for backend/processor communication
 - **Bull + Redis**: Job queue (prepared, not actively used yet)
-- **Undici**: Fast HTTP client for processor communication
 
 ### Code Organization
 
@@ -194,10 +267,14 @@ src/
 ├── app.ts                # Fastify app factory
 ├── config.ts             # Zod-validated config
 ├── routes/
-│   └── protect.ts        # POST /protect handler
+│   ├── protect.ts        # POST /protect handler
+│   ├── callback.ts       # POST /callbacks/process-complete handler
+│   └── jobs.ts           # GET /jobs/{id}, GET /jobs/{id}/result
 ├── services/
-│   ├── duplicate.service.ts   # MongoDB client
-│   ├── processor.service.ts   # HTTP client with circuit breaker
+│   ├── duplicate.service.ts   # Backend API client (duplicates + artwork queries)
+│   ├── processor.service.ts   # HTTP client with callback workflow + backend URL injection
+│   ├── backend.service.ts     # HTTP client for backend storage (deprecated in optimized flow)
+│   ├── upload.service.ts      # Deprecated - no longer needed
 │   └── queue.service.ts       # Bull queue (future)
 ├── types/
 │   └── schemas.ts        # Zod schemas
@@ -208,9 +285,10 @@ src/
 ## Performance Characteristics
 
 - **Throughput**: ~1000 req/s per instance (with 4 workers on 4-core CPU)
-- **Memory**: Constant usage regardless of file size (streaming)
-- **Database**: Sub-10ms queries (connection pooling)
+- **Memory**: Minimal router memory usage - no temporary storage (processor uploads directly to backend)
+- **Backend API**: HTTP calls for duplicate detection and artwork queries (latency depends on backend performance)
 - **Failover**: Fast fail via circuit breaker (no cascading failures)
+- **Optimization**: Zero file transfers through router - processor handles all uploads to backend directly
 
 ## Testing
 

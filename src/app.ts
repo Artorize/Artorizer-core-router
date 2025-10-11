@@ -2,8 +2,9 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import { config } from './config';
-import { getDuplicateService } from './services/duplicate.service';
 import { protectRoute } from './routes/protect';
+import { callbackRoute } from './routes/callback';
+import { jobsRoute } from './routes/jobs';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -52,6 +53,8 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Register routes
   app.register(protectRoute);
+  app.register(callbackRoute);
+  app.register(jobsRoute);
 
   // Error handler
   app.setErrorHandler((error, request, reply) => {
@@ -81,7 +84,6 @@ export async function buildApp(): Promise<FastifyInstance> {
 export async function closeApp(app: FastifyInstance): Promise<void> {
   try {
     await app.close();
-    await getDuplicateService().disconnect();
   } catch (error) {
     console.error('Error during shutdown:', error);
     process.exit(1);

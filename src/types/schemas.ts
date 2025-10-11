@@ -45,6 +45,7 @@ export const protectRequestSchema = z.object({
 
   // Watermark parameters
   watermark_strategy: z.enum(WATERMARK_STRATEGIES).default('invisible-watermark'),
+  watermark_strength: z.coerce.number().min(0).max(1).default(0.5),
   watermark_text: z.string().default('artscraper'),
   tree_ring_frequency: z.coerce.number().min(1).max(32).default(9.0),
   tree_ring_amplitude: z.coerce.number().min(1).max(64).default(18.0),

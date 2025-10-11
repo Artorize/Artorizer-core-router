@@ -1,28 +1,22 @@
-import { MongoClient, Db } from 'mongodb';
+import { request } from 'undici';
 import { config } from '../config';
 
+/**
+ * Service for checking duplicates and retrieving artwork metadata via Backend API
+ * No direct database access - all operations go through the backend
+ */
 export class DuplicateDetectionService {
-  private client: MongoClient;
-  private db: Db | null = null;
+  private baseUrl: string;
+  private timeout: number;
 
   constructor() {
-    this.client = new MongoClient(config.mongodb.uri, {
-      maxPoolSize: 20,
-      minPoolSize: 5,
-    });
-  }
-
-  async connect(): Promise<void> {
-    await this.client.connect();
-    this.db = this.client.db();
-  }
-
-  async disconnect(): Promise<void> {
-    await this.client.close();
+    this.baseUrl = config.backend.url;
+    this.timeout = config.backend.timeout;
   }
 
   /**
    * Check if artwork exists by checksum, title+artist, or tags
+   * Uses Backend API: GET /artworks/check-exists
    */
   async checkExists(params: {
     checksum?: string;
@@ -30,53 +24,117 @@ export class DuplicateDetectionService {
     artist?: string;
     tags?: string[];
   }): Promise<{ exists: boolean; artwork?: any }> {
-    if (!this.db) {
-      throw new Error('Database not connected');
-    }
+    try {
+      const queryParams = new URLSearchParams();
 
-    const query: any = {};
+      // Build query parameters based on what's provided
+      if (params.checksum) {
+        queryParams.append('checksum', params.checksum);
+      } else if (params.title && params.artist) {
+        queryParams.append('title', params.title);
+        queryParams.append('artist', params.artist);
+      } else if (params.tags && params.tags.length > 0) {
+        queryParams.append('tags', params.tags.join(','));
+      } else {
+        return { exists: false };
+      }
 
-    // Check by checksum (highest priority)
-    if (params.checksum) {
-      query['formats.original.checksum'] = params.checksum;
-    }
-    // Check by title + artist
-    else if (params.title && params.artist) {
-      query.title = params.title;
-      query.artist = params.artist;
-    }
-    // Check by tags
-    else if (params.tags && params.tags.length > 0) {
-      query.tags = { $all: params.tags };
-    } else {
+      const response = await request(
+        `${this.baseUrl}/artworks/check-exists?${queryParams.toString()}`,
+        {
+          method: 'GET',
+          headersTimeout: this.timeout,
+        }
+      );
+
+      if (response.statusCode !== 200) {
+        return { exists: false };
+      }
+
+      const data = await response.body.json() as any;
+
+      // Backend returns: { exists: boolean, matchCount: number, matches: [...] }
+      if (data.exists && data.matches && data.matches.length > 0) {
+        return {
+          exists: true,
+          artwork: data.matches[0], // Return first match
+        };
+      }
+
+      return { exists: false };
+    } catch (error) {
+      // On error, assume not exists (fail open for duplicate check)
+      console.error('Error checking for duplicates:', error);
       return { exists: false };
     }
-
-    const artwork = await this.db.collection('artworks').findOne(query, {
-      projection: {
-        _id: 1,
-        title: 1,
-        artist: 1,
-        uploadedAt: 1,
-        'formats.original.checksum': 1,
-      },
-    });
-
-    return {
-      exists: !!artwork,
-      artwork: artwork || undefined,
-    };
   }
 
   /**
    * Get artwork by ID
+   * Uses Backend API: GET /artworks/{id}/metadata
    */
   async getArtworkById(id: string): Promise<any | null> {
-    if (!this.db) {
-      throw new Error('Database not connected');
-    }
+    try {
+      const response = await request(`${this.baseUrl}/artworks/${id}/metadata`, {
+        method: 'GET',
+        headersTimeout: this.timeout,
+      });
 
-    return await this.db.collection('artworks').findOne({ _id: id } as any);
+      if (response.statusCode === 404) {
+        return null;
+      }
+
+      if (response.statusCode !== 200) {
+        throw new Error(`Backend returned ${response.statusCode}`);
+      }
+
+      return await response.body.json();
+    } catch (error) {
+      if ((error as any).message?.includes('404')) {
+        return null;
+      }
+      throw new Error(
+        `Failed to get artwork: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Get job status
+   * Uses Backend API: GET /artworks/{id}/metadata (partial projection)
+   */
+  async getJobStatus(jobId: string): Promise<any | null> {
+    try {
+      const response = await request(`${this.baseUrl}/artworks/${jobId}/metadata`, {
+        method: 'GET',
+        headersTimeout: this.timeout,
+      });
+
+      if (response.statusCode === 404) {
+        return null;
+      }
+
+      if (response.statusCode !== 200) {
+        throw new Error(`Backend returned ${response.statusCode}`);
+      }
+
+      const artwork = await response.body.json() as any;
+
+      // Return only status-related fields
+      return {
+        _id: artwork._id,
+        status: 'completed', // If it exists in backend, it's completed
+        completedAt: artwork.createdAt,
+        uploadedAt: artwork.uploadedAt,
+      };
+    } catch (error) {
+      if ((error as any).message?.includes('404')) {
+        return null;
+      }
+      throw new Error(
+        `Failed to get job status: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 }
 

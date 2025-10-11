@@ -2,14 +2,9 @@ import cluster from 'cluster';
 import os from 'os';
 import { config } from './config';
 import { buildApp, closeApp } from './app';
-import { getDuplicateService } from './services/duplicate.service';
 
 async function startWorker() {
   try {
-    // Connect to MongoDB
-    const duplicateService = getDuplicateService();
-    await duplicateService.connect();
-
     // Build and start Fastify app
     const app = await buildApp();
     await app.listen({
