@@ -124,7 +124,7 @@ export async function jobsRoute(app: FastifyInstance) {
 
         // If artwork exists in backend, it's completed
         const baseUrl = config.backend.url;
-        const downloadUrl = `${baseUrl}/artworks/${artwork._id}/download?variant=${variant}`;
+        const downloadUrl = `${baseUrl}/artworks/${artwork._id}?variant=${variant}`;
 
         // Redirect to backend
         return reply.redirect(downloadUrl, 307);
