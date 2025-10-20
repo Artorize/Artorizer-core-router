@@ -12,11 +12,13 @@ set -u  # Exit on undefined variable
 
 # Configuration
 DEPLOY_ENV="${1:-production}"
-APP_NAME="artorizer-router"
+APP_NAME="artoize-router"
 APP_USER="artorizer"
 APP_DIR="/opt/artorizer-router"
 LOG_DIR="/var/log/artorizer"
 NODE_VERSION="20"  # LTS version
+GITHUB_REPO="https://github.com/Artorize/artorize-core-router.git"
+GITHUB_BRANCH="${2:-master}"  # Default to master branch
 
 # Colors for output
 RED='\033[0;31m'
@@ -113,17 +115,26 @@ chown -R "$APP_USER:$APP_USER" "$LOG_DIR"
 ################################################################################
 # 5. Clone/Update Repository
 ################################################################################
-log_info "Step 5/8: Deploying application code..."
+log_info "Step 5/8: Deploying application code from GitHub..."
 
 RELEASE_DIR="$APP_DIR/releases/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RELEASE_DIR"
 
-# Copy current directory contents to release directory
-log_info "Copying application files to $RELEASE_DIR..."
-cp -r $(dirname "$0")/* "$RELEASE_DIR/" 2>/dev/null || {
-    log_error "Failed to copy application files. Ensure you're running this from the project root."
-    exit 1
-}
+# Clone repository from GitHub
+log_info "Cloning from $GITHUB_REPO (branch: $GITHUB_BRANCH)..."
+if [ -d "$APP_DIR/.git" ]; then
+    log_info "Existing repository found. Updating..."
+    cd "$APP_DIR"
+    sudo -u "$APP_USER" git fetch origin
+    sudo -u "$APP_USER" git checkout "$GITHUB_BRANCH"
+    sudo -u "$APP_USER" git pull origin "$GITHUB_BRANCH"
+    # Copy to release directory
+    sudo -u "$APP_USER" cp -r "$APP_DIR"/* "$RELEASE_DIR/" 2>/dev/null || true
+    sudo -u "$APP_USER" cp -r "$APP_DIR"/.[!.]* "$RELEASE_DIR/" 2>/dev/null || true
+else
+    log_info "Cloning fresh repository..."
+    sudo -u "$APP_USER" git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$RELEASE_DIR"
+fi
 
 # Install dependencies
 log_info "Installing npm dependencies..."

@@ -22,20 +22,58 @@ Frontend → CDN → Router (this) → Processor Core
 
 ## Quick Start
 
-### Prerequisites
+### Automated Deployment (Debian/Ubuntu)
+
+Deploy the entire stack with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Artorize/artorize-core-router/master/deploy.sh | sudo bash
+```
+
+This automated deployment script will:
+- ✅ Install Node.js 20.x, Redis, Nginx, and all dependencies
+- ✅ Clone the repository from GitHub
+- ✅ Build and configure the application
+- ✅ Create systemd service `artoize-router`
+- ✅ Setup Nginx reverse proxy
+- ✅ Configure firewall rules
+- ✅ Start all services automatically
+
+**Post-deployment:** Edit `/opt/artorizer-router/shared/.env` with your configuration (BACKEND_URL, PROCESSOR_URL, CALLBACK_AUTH_TOKEN), then restart: `sudo systemctl restart artoize-router`
+
+**Useful commands:**
+```bash
+# View logs
+sudo journalctl -u artoize-router -f
+
+# Restart service
+sudo systemctl restart artoize-router
+
+# Check status
+sudo systemctl status artoize-router
+
+# View application logs
+sudo tail -f /var/log/artorizer/router.log
+```
+
+---
+
+### Manual Installation
+
+#### Prerequisites
 
 - Node.js 18+
 - MongoDB (for duplicate detection)
 - Redis (for job queue)
 - Processor Core running on port 8000
 
-### Installation
+#### Installation
 
 ```bash
 npm install
 ```
 
-### Configuration
+#### Configuration
 
 Create a `.env` file:
 
@@ -57,13 +95,13 @@ REDIS_PORT=6379
 PROCESSOR_URL=http://localhost:8000
 ```
 
-### Development
+#### Development
 
 ```bash
 npm run dev
 ```
 
-### Production
+#### Production
 
 ```bash
 npm run build
