@@ -232,18 +232,145 @@ curl -X POST http://localhost:7000/protect \
 
 ## Health Check
 
+The router provides comprehensive health check endpoints that monitor all dependent services.
+
+### GET /health
+
+Comprehensive health check with detailed service status.
+
 ```bash
 curl http://localhost:7000/health
+```
+
+**Healthy Response (200):**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-01T12:00:00.000Z",
+  "uptime": 123.45,
+  "version": "1.0.0",
+  "services": {
+    "processor": {
+      "status": "up",
+      "message": "Processor is operational",
+      "responseTime": 45,
+      "details": {
+        "failureCount": 0
+      }
+    },
+    "backend": {
+      "status": "up",
+      "message": "Backend and database are operational",
+      "responseTime": 32
+    },
+    "redis": {
+      "status": "up",
+      "message": "Redis is operational",
+      "responseTime": 12,
+      "details": {
+        "jobs": {
+          "waiting": 0,
+          "active": 2,
+          "completed": 145,
+          "failed": 0,
+          "delayed": 0
+        }
+      }
+    }
+  }
+}
+```
+
+**Degraded Response (200):**
+
+Returns 200 but indicates service degradation when non-critical services are down:
+
+```json
+{
+  "status": "degraded",
+  "services": {
+    "processor": {
+      "status": "degraded",
+      "message": "Circuit breaker is open",
+      "responseTime": 52
+    },
+    "backend": { "status": "up" },
+    "redis": { "status": "up" }
+  }
+}
+```
+
+**Unhealthy Response (503):**
+
+Returns 503 when critical services are unavailable:
+
+```json
+{
+  "status": "unhealthy",
+  "services": {
+    "processor": {
+      "status": "down",
+      "message": "Processor health check failed",
+      "responseTime": 5002
+    },
+    "backend": {
+      "status": "down",
+      "message": "Backend health check failed (database may be unavailable)"
+    },
+    "redis": { "status": "up" }
+  }
+}
+```
+
+### GET /health/live
+
+Simple liveness probe (useful for Kubernetes/Docker).
+
+```bash
+curl http://localhost:7000/health/live
 ```
 
 Response:
 ```json
 {
-  "ok": true,
-  "uptime": 123.45,
+  "status": "alive",
   "timestamp": "2024-01-01T12:00:00.000Z"
 }
 ```
+
+### GET /health/ready
+
+Readiness probe - checks if the service can accept traffic. Returns 503 if critical dependencies are down.
+
+```bash
+curl http://localhost:7000/health/ready
+```
+
+**Ready (200):**
+```json
+{
+  "status": "ready",
+  "timestamp": "2024-01-01T12:00:00.000Z"
+}
+```
+
+**Not Ready (503):**
+```json
+{
+  "status": "not_ready",
+  "timestamp": "2024-01-01T12:00:00.000Z",
+  "services": {
+    "processor": "down",
+    "backend": "up"
+  }
+}
+```
+
+### Service Status Meanings
+
+- **processor**: Artorizer Processor Core API connectivity and circuit breaker status
+- **backend**: Backend Storage API connectivity (implies database connectivity)
+- **redis**: Redis queue service connectivity and job metrics
 
 ## Tech Stack
 

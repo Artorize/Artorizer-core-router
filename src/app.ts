@@ -5,6 +5,7 @@ import { config } from './config';
 import { protectRoute } from './routes/protect';
 import { callbackRoute } from './routes/callback';
 import { jobsRoute } from './routes/jobs';
+import { healthRoute } from './routes/health';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -42,16 +43,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     attachFieldsToBody: true,
   });
 
-  // Health check
-  app.get('/health', async () => {
-    return {
-      ok: true,
-      uptime: process.uptime(),
-      timestamp: new Date().toISOString(),
-    };
-  });
-
   // Register routes
+  app.register(healthRoute);
   app.register(protectRoute);
   app.register(callbackRoute);
   app.register(jobsRoute);

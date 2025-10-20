@@ -182,6 +182,62 @@ Proxy download from backend. Redirects (307) to backend storage URL.
 
 **Variants:** `original`, `protected`, `mask_hi`, `mask_lo`
 
+### GET /health
+
+Comprehensive health check endpoint that monitors all dependent services.
+
+**Response:**
+- `200 OK`: System healthy or degraded (with detailed service status)
+- `503 Service Unavailable`: Critical services down
+
+**Response structure:**
+```json
+{
+  "status": "healthy|degraded|unhealthy",
+  "timestamp": "ISO 8601 timestamp",
+  "uptime": 123.45,
+  "version": "1.0.0",
+  "services": {
+    "processor": {
+      "status": "up|down|degraded",
+      "message": "Status description",
+      "responseTime": 45,
+      "details": { "circuitBreaker": {...} }
+    },
+    "backend": {
+      "status": "up|down",
+      "message": "Backend and database are operational",
+      "responseTime": 32
+    },
+    "redis": {
+      "status": "up|down",
+      "message": "Redis is operational",
+      "responseTime": 12,
+      "details": { "jobs": {...} }
+    }
+  }
+}
+```
+
+**Service checks:**
+- **Processor**: Calls `/health` on processor service, checks circuit breaker status
+- **Backend**: Calls `/health` on backend service (implicitly verifies database connectivity)
+- **Redis**: Tests connection via Bull queue metrics
+
+### GET /health/live
+
+Simple liveness probe for container orchestration (Kubernetes/Docker).
+
+**Response:** `200 OK` with `{"status": "alive", "timestamp": "..."}`
+
+### GET /health/ready
+
+Readiness probe that checks if critical services (processor, backend) are available.
+
+**Response:**
+- `200 OK`: Service ready to accept traffic
+- `503 Service Unavailable`: Critical dependencies unavailable
+
 ## Field Normalization
 
 The router accepts both camelCase and snake_case field names:
@@ -269,7 +325,8 @@ src/
 ├── routes/
 │   ├── protect.ts        # POST /protect handler
 │   ├── callback.ts       # POST /callbacks/process-complete handler
-│   └── jobs.ts           # GET /jobs/{id}, GET /jobs/{id}/result
+│   ├── jobs.ts           # GET /jobs/{id}, GET /jobs/{id}/result
+│   └── health.ts         # GET /health, /health/live, /health/ready
 ├── services/
 │   ├── duplicate.service.ts   # Backend API client (duplicates + artwork queries)
 │   ├── processor.service.ts   # HTTP client with callback workflow + backend URL injection
