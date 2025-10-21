@@ -17,7 +17,13 @@ APP_USER="artorizer"
 APP_DIR="/opt/artorizer-router"
 LOG_DIR="/var/log/artorizer"
 NODE_VERSION="20"  # LTS version
+
+# Repository Configuration
+# For public repos: use HTTPS (no authentication needed)
 GITHUB_REPO="https://github.com/Artorize/artorize-core-router.git"
+# For private repos: use SSH (requires deploy key setup)
+# GITHUB_REPO="git@github.com:Artorize/artorize-core-router.git"
+
 GITHUB_BRANCH="${2:-master}"  # Default to master branch
 
 # Colors for output
@@ -105,10 +111,14 @@ log_info "Step 4/8: Setting up application directory..."
 # Create directories
 mkdir -p "$APP_DIR"
 mkdir -p "$LOG_DIR"
+mkdir -p "$APP_DIR/.ssh"
 
 # Set ownership
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 chown -R "$APP_USER:$APP_USER" "$LOG_DIR"
+
+# Set proper SSH directory permissions (required for SSH keys)
+chmod 700 "$APP_DIR/.ssh" 2>/dev/null || true
 
 ################################################################################
 # 5. Clone/Update Repository
@@ -117,10 +127,20 @@ log_info "Step 5/8: Deploying application code from GitHub..."
 
 # Backup config files if they exist
 BACKUP_DIR="/tmp/artorizer-backup-$$"
-if [ -d "$APP_DIR" ] && [ -f "$APP_DIR/.env" ]; then
+if [ -d "$APP_DIR" ]; then
     log_info "Backing up existing configuration files..."
     mkdir -p "$BACKUP_DIR"
-    cp "$APP_DIR/.env" "$BACKUP_DIR/.env" 2>/dev/null || true
+
+    # Backup .env if exists
+    if [ -f "$APP_DIR/.env" ]; then
+        cp "$APP_DIR/.env" "$BACKUP_DIR/.env" 2>/dev/null || true
+    fi
+
+    # Backup SSH keys if they exist (for private repos)
+    if [ -d "$APP_DIR/.ssh" ]; then
+        cp -r "$APP_DIR/.ssh" "$BACKUP_DIR/.ssh" 2>/dev/null || true
+    fi
+
     log_info "Configuration backed up to $BACKUP_DIR"
 fi
 
@@ -144,11 +164,24 @@ else
 fi
 
 # Restore config files if they were backed up
-if [ -d "$BACKUP_DIR" ] && [ -f "$BACKUP_DIR/.env" ]; then
+if [ -d "$BACKUP_DIR" ]; then
     log_info "Restoring configuration files..."
-    cp "$BACKUP_DIR/.env" "$APP_DIR/.env"
-    chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
-    chmod 600 "$APP_DIR/.env"
+
+    # Restore .env
+    if [ -f "$BACKUP_DIR/.env" ]; then
+        cp "$BACKUP_DIR/.env" "$APP_DIR/.env"
+        chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
+        chmod 600 "$APP_DIR/.env"
+    fi
+
+    # Restore SSH keys (for private repos)
+    if [ -d "$BACKUP_DIR/.ssh" ]; then
+        cp -r "$BACKUP_DIR/.ssh" "$APP_DIR/"
+        chown -R "$APP_USER:$APP_USER" "$APP_DIR/.ssh"
+        chmod 700 "$APP_DIR/.ssh"
+        chmod 600 "$APP_DIR/.ssh"/* 2>/dev/null || true
+    fi
+
     rm -rf "$BACKUP_DIR"
     log_info "Configuration restored"
 fi

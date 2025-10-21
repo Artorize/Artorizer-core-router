@@ -7,6 +7,7 @@
 - At least 2GB RAM
 - 2+ CPU cores recommended
 - 20GB disk space
+- **Public GitHub repository** (or setup deploy key for private repos - see below)
 
 ### One-Command Deployment
 
@@ -20,6 +21,35 @@ ssh user@your-server
 # 3. Run deployment script
 cd /tmp/artorizer-router
 sudo ./deploy.sh production
+```
+
+### For Private Repositories
+
+If your repository is private, you need to set up SSH authentication:
+
+```bash
+# 1. SSH to server
+ssh user@your-server
+
+# 2. Generate SSH key for artorizer user (run after first deployment)
+sudo -u artorizer ssh-keygen -t ed25519 -C "artorizer-deploy" -f /opt/artorizer-router/.ssh/id_ed25519 -N ""
+
+# 3. Display the public key
+sudo cat /opt/artorizer-router/.ssh/id_ed25519.pub
+
+# 4. Add the public key as a Deploy Key in GitHub:
+#    - Go to: https://github.com/Artorize/artorize-core-router/settings/keys
+#    - Click "Add deploy key"
+#    - Paste the public key
+#    - Name it: "Production Server"
+#    - Enable "Allow write access" only if needed
+
+# 5. Update deploy.sh to use SSH instead of HTTPS:
+#    Change: GITHUB_REPO="https://github.com/Artorize/artorize-core-router.git"
+#    To:     GITHUB_REPO="git@github.com:Artorize/artorize-core-router.git"
+
+# 6. Test SSH connection
+sudo -u artorizer ssh -T git@github.com
 ```
 
 ## What the Script Does
