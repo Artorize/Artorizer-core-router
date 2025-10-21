@@ -95,7 +95,7 @@ This prevents cascade failures when the processor is down.
 All config is in `src/config.ts` using Zod validation. Environment variables:
 
 **Required External Services:**
-- `BACKEND_URL`: Backend storage API endpoint - handles all database operations (default: `http://localhost:3000`)
+- `BACKEND_URL`: Backend storage API endpoint - handles all database operations (default: `http://localhost:5001`)
 - `PROCESSOR_URL`: Processor core API endpoint (default: `http://localhost:8000`)
 - `REDIS_HOST`, `REDIS_PORT`: For Bull queue (future async processing)
 

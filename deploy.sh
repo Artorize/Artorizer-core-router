@@ -19,11 +19,7 @@ LOG_DIR="/var/log/artorizer"
 NODE_VERSION="20"  # LTS version
 
 # Repository Configuration
-# For public repos: use HTTPS (no authentication needed)
 GITHUB_REPO="https://github.com/Artorize/Artorizer-core-router.git"
-# For private repos: use SSH (requires deploy key setup)
-# GITHUB_REPO="git@github.com:Artorize/Artorizer-core-router.git"
-
 GITHUB_BRANCH="${2:-master}"  # Default to master branch
 
 # Colors for output
@@ -111,102 +107,38 @@ log_info "Step 4/8: Setting up application directory..."
 # Create directories
 mkdir -p "$APP_DIR"
 mkdir -p "$LOG_DIR"
-mkdir -p "$APP_DIR/.ssh"
 
 # Set ownership
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 chown -R "$APP_USER:$APP_USER" "$LOG_DIR"
 
-# Set proper SSH directory permissions (required for SSH keys)
-chmod 700 "$APP_DIR/.ssh" 2>/dev/null || true
-
 ################################################################################
 # 5. Clone/Update Repository
 ################################################################################
-log_info "Step 5/8: Deploying application code from GitHub..."
+log_info "Step 5/8: Cloning repository from $GITHUB_REPO (branch: $GITHUB_BRANCH)..."
 
-# Check if repository is accessible before proceeding
-log_info "Checking repository accessibility..."
-export GIT_TERMINAL_PROMPT=0  # Prevent interactive prompts
-
-if ! sudo -u "$APP_USER" git ls-remote "$GITHUB_REPO" &>/dev/null; then
-    log_error "Cannot access repository: $GITHUB_REPO"
-    log_error "Possible reasons:"
-    log_error "  1. Repository doesn't exist or URL is incorrect"
-    log_error "  2. Repository is private and requires authentication"
-    log_error "  3. Network connectivity issues"
-    log_error ""
-    log_error "For private repositories:"
-    log_error "  - Use SSH: GITHUB_REPO=\"git@github.com:Artorize/artorize-core-router.git\""
-    log_error "  - Setup deploy key in $APP_DIR/.ssh/ before running this script"
-    log_error ""
-    log_error "For public repositories:"
-    log_error "  - Verify the repository URL is correct"
-    log_error "  - Check your network connection"
-    exit 1
+# Preserve existing config if it exists
+SAVED_ENV=""
+if [ -f "$APP_DIR/.env" ]; then
+    log_info "Preserving existing configuration..."
+    SAVED_ENV=$(cat "$APP_DIR/.env")
 fi
 
-log_info "Repository is accessible ✓"
-
-# Backup config files if they exist
-BACKUP_DIR="/tmp/artorizer-backup-$$"
+# Remove old installation if it exists
 if [ -d "$APP_DIR" ]; then
-    log_info "Backing up existing configuration files..."
-    mkdir -p "$BACKUP_DIR"
-
-    # Backup .env if exists
-    if [ -f "$APP_DIR/.env" ]; then
-        cp "$APP_DIR/.env" "$BACKUP_DIR/.env" 2>/dev/null || true
-    fi
-
-    # Backup SSH keys if they exist (for private repos)
-    if [ -d "$APP_DIR/.ssh" ]; then
-        cp -r "$APP_DIR/.ssh" "$BACKUP_DIR/.ssh" 2>/dev/null || true
-    fi
-
-    log_info "Configuration backed up to $BACKUP_DIR"
+    log_info "Removing old installation..."
+    rm -rf "$APP_DIR"
 fi
 
-# Clean existing directory if it exists
-if [ -d "$APP_DIR" ]; then
-    log_info "Existing installation found. Cleaning directory..."
-    # Remove everything except logs
-    rm -rf "$APP_DIR"/*
-    rm -rf "$APP_DIR"/.[!.]* 2>/dev/null || true
-    log_info "Directory cleaned"
-fi
+# Clone repository
+git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$APP_DIR"
 
-# Clone fresh repository (non-interactive)
-log_info "Cloning fresh repository from $GITHUB_REPO (branch: $GITHUB_BRANCH)..."
-if [ -d "$APP_DIR" ] && [ ! "$(ls -A $APP_DIR 2>/dev/null)" ]; then
-    # Directory exists but is empty
-    sudo -u "$APP_USER" GIT_TERMINAL_PROMPT=0 git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$APP_DIR"
-else
-    # Directory doesn't exist
-    sudo -u "$APP_USER" GIT_TERMINAL_PROMPT=0 git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$APP_DIR"
-fi
-
-# Restore config files if they were backed up
-if [ -d "$BACKUP_DIR" ]; then
-    log_info "Restoring configuration files..."
-
-    # Restore .env
-    if [ -f "$BACKUP_DIR/.env" ]; then
-        cp "$BACKUP_DIR/.env" "$APP_DIR/.env"
-        chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
-        chmod 600 "$APP_DIR/.env"
-    fi
-
-    # Restore SSH keys (for private repos)
-    if [ -d "$BACKUP_DIR/.ssh" ]; then
-        cp -r "$BACKUP_DIR/.ssh" "$APP_DIR/"
-        chown -R "$APP_USER:$APP_USER" "$APP_DIR/.ssh"
-        chmod 700 "$APP_DIR/.ssh"
-        chmod 600 "$APP_DIR/.ssh"/* 2>/dev/null || true
-    fi
-
-    rm -rf "$BACKUP_DIR"
-    log_info "Configuration restored"
+# Restore preserved config
+if [ -n "$SAVED_ENV" ]; then
+    log_info "Restoring configuration..."
+    echo "$SAVED_ENV" > "$APP_DIR/.env"
+    chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
+    chmod 600 "$APP_DIR/.env"
 fi
 
 # Ensure proper ownership
@@ -241,7 +173,7 @@ HOST=127.0.0.1
 WORKERS=4
 
 # External Services (UPDATE THESE!)
-BACKEND_URL=http://localhost:3000
+BACKEND_URL=http://localhost:5001
 PROCESSOR_URL=http://localhost:8000
 
 # Router Configuration

@@ -21,7 +21,7 @@ const configSchema = z.object({
   }),
 
   backend: z.object({
-    url: z.string().default('http://localhost:3000'),
+    url: z.string().default('http://localhost:5001'),
     timeout: z.coerce.number().default(30000),
   }),
 
