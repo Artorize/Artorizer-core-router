@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import os from 'os';
 
 dotenv.config();
 
@@ -7,7 +8,10 @@ const configSchema = z.object({
   port: z.coerce.number().default(7000),
   host: z.string().default('127.0.0.1'),
   nodeEnv: z.enum(['development', 'production', 'test']).default('development'),
-  workers: z.coerce.number().default(4),
+  workers: z.preprocess(
+    (val) => (val === 'auto' ? os.cpus().length : val),
+    z.coerce.number()
+  ).default(4),
 
   redis: z.object({
     host: z.string().default('localhost'),
@@ -23,6 +27,11 @@ const configSchema = z.object({
   backend: z.object({
     url: z.string().default('http://localhost:5001'),
     timeout: z.coerce.number().default(30000),
+  }),
+
+  router: z.object({
+    baseUrl: z.string().default('http://localhost:7000'),
+    callbackAuthToken: z.string().default('change-this-to-a-secure-random-token'),
   }),
 
   rateLimit: z.object({
@@ -55,6 +64,11 @@ export const config = configSchema.parse({
   backend: {
     url: process.env.BACKEND_URL,
     timeout: process.env.BACKEND_TIMEOUT,
+  },
+
+  router: {
+    baseUrl: process.env.ROUTER_BASE_URL,
+    callbackAuthToken: process.env.CALLBACK_AUTH_TOKEN,
   },
 
   rateLimit: {
