@@ -90,7 +90,7 @@ export async function healthRoute(app: FastifyInstance): Promise<void> {
    * Readiness probe (checks if service can accept traffic)
    * GET /health/ready
    */
-  app.get('/health/ready', async (request, reply) => {
+  app.get('/health/ready', async (_request, reply) => {
     const processorService = getProcessorService();
     const backendService = getBackendService();
 

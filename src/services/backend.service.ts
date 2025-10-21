@@ -142,7 +142,7 @@ export class BackendService {
         throw new Error(`Backend returned ${response.statusCode}: ${errorBody}`);
       }
 
-      const data = await response.body.json();
+      const data = await response.body.json() as { token: string; tokenId: string; expiresAt: string };
       return {
         token: data.token,
         tokenId: data.tokenId,
