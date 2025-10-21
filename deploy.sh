@@ -20,9 +20,9 @@ NODE_VERSION="20"  # LTS version
 
 # Repository Configuration
 # For public repos: use HTTPS (no authentication needed)
-GITHUB_REPO="https://github.com/Artorize/artorize-core-router.git"
+GITHUB_REPO="https://github.com/Artorize/Artorizer-core-router.git"
 # For private repos: use SSH (requires deploy key setup)
-# GITHUB_REPO="git@github.com:Artorize/artorize-core-router.git"
+# GITHUB_REPO="git@github.com:Artorize/Artorizer-core-router.git"
 
 GITHUB_BRANCH="${2:-master}"  # Default to master branch
 
