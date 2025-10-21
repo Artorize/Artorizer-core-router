@@ -152,6 +152,13 @@ sudo -u "$APP_USER" bash -c "cd $APP_DIR && npm ci"
 log_info "Building TypeScript..."
 sudo -u "$APP_USER" bash -c "cd $APP_DIR && npm run build"
 
+# Verify build succeeded
+if [ ! -f "$APP_DIR/dist/index.js" ]; then
+    log_error "Build failed - dist/index.js not found"
+    exit 1
+fi
+log_info "Build successful - dist/index.js created"
+
 log_info "Pruning dev dependencies..."
 sudo -u "$APP_USER" bash -c "cd $APP_DIR && npm prune --production"
 
@@ -202,6 +209,13 @@ fi
 chown "$APP_USER:$APP_USER" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
+# Verify .env exists and is readable
+if [ ! -f "$ENV_FILE" ]; then
+    log_error ".env file was not created properly"
+    exit 1
+fi
+log_info ".env file configured successfully"
+
 ################################################################################
 # 7. Setup Systemd Service
 ################################################################################
@@ -218,7 +232,7 @@ Type=simple
 User=$APP_USER
 Group=$APP_USER
 WorkingDirectory=$APP_DIR
-EnvironmentFile=$APP_DIR/.env
+EnvironmentFile=-$APP_DIR/.env
 
 # Start command
 ExecStart=/usr/bin/node $APP_DIR/dist/index.js

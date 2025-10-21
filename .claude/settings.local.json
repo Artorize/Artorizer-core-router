@@ -20,7 +20,8 @@
       "Bash(python:*)",
       "Bash(timeout 60 bash -c 'while true; do sleep 3; curl -s http://localhost:7000/jobs/5e1bf0a1-054d-4ee7-95d9-eb3cf2f380a5 2>&1; echo \"\"\"\"\"\"\"\"; done')",
       "Bash(timeout:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(npm start)"
     ],
     "deny": [],
     "ask": []
