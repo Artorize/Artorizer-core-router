@@ -27,7 +27,7 @@ Frontend → CDN → Router (this) → Processor Core
 Deploy the entire stack with a single command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Artorize/artorize-processor-core/master/deploy.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Artorize/Artorizer-core-router/master/deploy.sh | sudo bash
 ```
 
 This automated deployment script will:
