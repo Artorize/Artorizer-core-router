@@ -105,8 +105,6 @@ log_info "Step 4/8: Setting up application directory..."
 # Create directories
 mkdir -p "$APP_DIR"
 mkdir -p "$LOG_DIR"
-mkdir -p "$APP_DIR/releases"
-mkdir -p "$APP_DIR/shared"
 
 # Set ownership
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
@@ -117,49 +115,65 @@ chown -R "$APP_USER:$APP_USER" "$LOG_DIR"
 ################################################################################
 log_info "Step 5/8: Deploying application code from GitHub..."
 
-RELEASE_DIR="$APP_DIR/releases/$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$RELEASE_DIR"
-
-# Clone repository from GitHub
-log_info "Cloning from $GITHUB_REPO (branch: $GITHUB_BRANCH)..."
-if [ -d "$APP_DIR/.git" ]; then
-    log_info "Existing repository found. Updating..."
-    cd "$APP_DIR"
-    sudo -u "$APP_USER" git fetch origin
-    sudo -u "$APP_USER" git checkout "$GITHUB_BRANCH"
-    sudo -u "$APP_USER" git pull origin "$GITHUB_BRANCH"
-    # Copy to release directory
-    sudo -u "$APP_USER" cp -r "$APP_DIR"/* "$RELEASE_DIR/" 2>/dev/null || true
-    sudo -u "$APP_USER" cp -r "$APP_DIR"/.[!.]* "$RELEASE_DIR/" 2>/dev/null || true
-else
-    log_info "Cloning fresh repository..."
-    sudo -u "$APP_USER" git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$RELEASE_DIR"
+# Backup config files if they exist
+BACKUP_DIR="/tmp/artorizer-backup-$$"
+if [ -d "$APP_DIR" ] && [ -f "$APP_DIR/.env" ]; then
+    log_info "Backing up existing configuration files..."
+    mkdir -p "$BACKUP_DIR"
+    cp "$APP_DIR/.env" "$BACKUP_DIR/.env" 2>/dev/null || true
+    log_info "Configuration backed up to $BACKUP_DIR"
 fi
+
+# Clean existing directory if it exists
+if [ -d "$APP_DIR" ]; then
+    log_info "Existing installation found. Cleaning directory..."
+    # Remove everything except logs
+    rm -rf "$APP_DIR"/*
+    rm -rf "$APP_DIR"/.[!.]* 2>/dev/null || true
+    log_info "Directory cleaned"
+fi
+
+# Clone fresh repository
+log_info "Cloning fresh repository from $GITHUB_REPO (branch: $GITHUB_BRANCH)..."
+if [ -d "$APP_DIR" ] && [ ! "$(ls -A $APP_DIR 2>/dev/null)" ]; then
+    # Directory exists but is empty
+    sudo -u "$APP_USER" git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$APP_DIR"
+else
+    # Directory doesn't exist
+    sudo -u "$APP_USER" git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$APP_DIR"
+fi
+
+# Restore config files if they were backed up
+if [ -d "$BACKUP_DIR" ] && [ -f "$BACKUP_DIR/.env" ]; then
+    log_info "Restoring configuration files..."
+    cp "$BACKUP_DIR/.env" "$APP_DIR/.env"
+    chown "$APP_USER:$APP_USER" "$APP_DIR/.env"
+    chmod 600 "$APP_DIR/.env"
+    rm -rf "$BACKUP_DIR"
+    log_info "Configuration restored"
+fi
+
+# Ensure proper ownership
+chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
 # Install dependencies
 log_info "Installing npm dependencies..."
-cd "$RELEASE_DIR"
-chown -R "$APP_USER:$APP_USER" "$RELEASE_DIR"
-
+cd "$APP_DIR"
 sudo -u "$APP_USER" npm ci --production
 
 # Build TypeScript
 log_info "Building TypeScript..."
 sudo -u "$APP_USER" npm run build
 
-# Create symlink to current release
-rm -f "$APP_DIR/current"
-ln -s "$RELEASE_DIR" "$APP_DIR/current"
-
 ################################################################################
 # 6. Environment Configuration
 ################################################################################
 log_info "Step 6/8: Configuring environment..."
 
-ENV_FILE="$APP_DIR/shared/.env"
+ENV_FILE="$APP_DIR/.env"
 
 if [ ! -f "$ENV_FILE" ]; then
-    log_warn "No .env file found in shared directory. Creating from template..."
+    log_warn "No .env file found. Creating from template..."
 
     cat > "$ENV_FILE" << 'EOF'
 # Environment
@@ -194,8 +208,7 @@ EOF
     log_warn "Especially update: BACKEND_URL, PROCESSOR_URL, CALLBACK_AUTH_TOKEN"
 fi
 
-# Create symlink to env file in current release
-ln -sf "$ENV_FILE" "$APP_DIR/current/.env"
+# Set proper permissions
 chown "$APP_USER:$APP_USER" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
@@ -214,11 +227,11 @@ Wants=redis-server.service
 Type=simple
 User=$APP_USER
 Group=$APP_USER
-WorkingDirectory=$APP_DIR/current
-EnvironmentFile=$APP_DIR/shared/.env
+WorkingDirectory=$APP_DIR
+EnvironmentFile=$APP_DIR/.env
 
 # Start command
-ExecStart=/usr/bin/node $APP_DIR/current/dist/index.js
+ExecStart=/usr/bin/node $APP_DIR/dist/index.js
 
 # Restart policy
 Restart=always
@@ -391,12 +404,9 @@ else
 fi
 
 ################################################################################
-# Cleanup Old Releases (keep last 5)
+# Cleanup
 ################################################################################
-log_info "Cleaning up old releases..."
-cd "$APP_DIR/releases"
-ls -t | tail -n +6 | xargs -r rm -rf
-log_info "Kept last 5 releases"
+log_info "Deployment cleanup complete"
 
 ################################################################################
 # Deployment Summary
@@ -406,7 +416,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 log_info "Deployment completed successfully!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "📂 Application Directory: $APP_DIR/current"
+echo "📂 Application Directory: $APP_DIR"
 echo "📝 Environment File: $ENV_FILE"
 echo "📊 Logs Directory: $LOG_DIR"
 echo ""

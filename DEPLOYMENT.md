@@ -36,15 +36,11 @@ The `deploy.sh` script automates the entire deployment process:
 
 ### 2. Application Setup
 - Creates dedicated `artorizer` user for security
-- Sets up application directory structure:
-  ```
-  /opt/artorizer-router/
-  ├── current/          → symlink to latest release
-  ├── releases/         → timestamped releases (keeps last 5)
-  └── shared/           → persistent files (.env, uploads, etc.)
-  ```
+- Clones repository directly to `/opt/artorizer-router/`
+- Preserves `.env` configuration file across deployments
 - Builds TypeScript to production code
 - Installs production dependencies only
+- Fresh clone on each deployment ensures clean state
 
 ### 3. Service Configuration
 - Creates systemd service for auto-start and supervision
@@ -67,7 +63,7 @@ The `deploy.sh` script automates the entire deployment process:
 
 Edit the environment file:
 ```bash
-sudo nano /opt/artorizer-router/shared/.env
+sudo nano /opt/artorizer-router/.env
 ```
 
 **Required changes:**
@@ -210,30 +206,39 @@ sudo netstat -tlnp | grep :7000
 
 ## Updating the Application
 
-### Manual Update
-```bash
-# 1. Pull latest code on your local machine
-git pull origin master
+### Automated GitHub-Based Update
+The deployment script now pulls directly from GitHub, making updates simple:
 
-# 2. Upload to server
+```bash
+# SSH to server and re-run deployment script
+ssh user@your-server
+sudo ./deploy.sh production
+
+# Your .env configuration is automatically preserved
+# Fresh code is cloned from GitHub
+# Dependencies are reinstalled
+# Application is rebuilt and restarted
+```
+
+**What happens during update:**
+1. Backs up existing `.env` configuration
+2. Cleans `/opt/artorizer-router/` directory
+3. Clones fresh code from GitHub
+4. Restores `.env` configuration
+5. Installs dependencies and rebuilds
+6. Restarts service
+
+### Manual Code Update (Alternative)
+If you need to deploy from local changes instead of GitHub:
+
+```bash
+# 1. Upload to server
 scp -r . user@your-server:/tmp/artorizer-router-update
 
-# 3. SSH to server and re-run deployment
+# 2. SSH to server and re-run deployment
 ssh user@your-server
 cd /tmp/artorizer-router-update
 sudo ./deploy.sh production
-```
-
-### Rollback to Previous Release
-```bash
-# List available releases
-ls -lt /opt/artorizer-router/releases/
-
-# Rollback to specific release
-cd /opt/artorizer-router
-sudo rm current
-sudo ln -s releases/YYYYMMDD_HHMMSS current
-sudo systemctl restart artorizer-router
 ```
 
 ## Troubleshooting
@@ -246,16 +251,16 @@ sudo journalctl -u artorizer-router -n 50 --no-pager
 ```
 
 **Common issues:**
-- Missing environment variables → check `/opt/artorizer-router/shared/.env`
+- Missing environment variables → check `/opt/artorizer-router/.env`
 - Port already in use → check `netstat -tlnp | grep :7000`
 - Redis not running → `sudo systemctl start redis-server`
-- Permission errors → check ownership with `ls -la /opt/artorizer-router/current`
+- Permission errors → check ownership with `ls -la /opt/artorizer-router`
 
 ### High Memory Usage
 
 **Adjust worker count:**
 ```bash
-sudo nano /opt/artorizer-router/shared/.env
+sudo nano /opt/artorizer-router/.env
 # Set WORKERS=2 (or 1 for minimal memory)
 sudo systemctl restart artorizer-router
 ```
@@ -279,13 +284,6 @@ proxy_read_timeout 120s;
 3. Processor service down → check `PROCESSOR_URL` and processor logs
 
 ### Disk Space Full
-
-**Clean old releases:**
-```bash
-# Keep only last 2 releases
-cd /opt/artorizer-router/releases
-ls -t | tail -n +3 | xargs sudo rm -rf
-```
 
 **Clean logs:**
 ```bash
@@ -370,7 +368,7 @@ requirepass YOUR_STRONG_PASSWORD
 bind 127.0.0.1
 
 # Update .env file
-echo "REDIS_PASSWORD=YOUR_STRONG_PASSWORD" | sudo tee -a /opt/artorizer-router/shared/.env
+echo "REDIS_PASSWORD=YOUR_STRONG_PASSWORD" | sudo tee -a /opt/artorizer-router/.env
 ```
 
 ### 3. Regular Updates
@@ -403,7 +401,7 @@ mkdir -p "$BACKUP_DIR"
 
 # Backup configuration
 tar -czf "$BACKUP_DIR/config-$DATE.tar.gz" \
-    /opt/artorizer-router/shared/.env \
+    /opt/artorizer-router/.env \
     /etc/nginx/sites-available/artorizer-router \
     /etc/systemd/system/artorizer-router.service
 
@@ -433,7 +431,7 @@ For distributed setups with separate backend/processor servers:
 sudo ./deploy.sh production
 
 # Configure URLs to point to other servers
-sudo nano /opt/artorizer-router/shared/.env
+sudo nano /opt/artorizer-router/.env
 BACKEND_URL=http://backend-server:3000
 PROCESSOR_URL=http://processor-server:8000
 ```
@@ -464,7 +462,7 @@ sudo ufw allow from ROUTER_SERVER_IP to any port 8000
 | View logs | `sudo journalctl -u artorizer-router -f` |
 | Restart service | `sudo systemctl restart artorizer-router` |
 | Check status | `sudo systemctl status artorizer-router` |
-| Edit config | `sudo nano /opt/artorizer-router/shared/.env` |
+| Edit config | `sudo nano /opt/artorizer-router/.env` |
 | Test nginx | `sudo nginx -t` |
 | View processes | `ps aux \| grep node` |
 | Check ports | `sudo netstat -tlnp` |
