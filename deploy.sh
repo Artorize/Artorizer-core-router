@@ -125,6 +125,29 @@ chmod 700 "$APP_DIR/.ssh" 2>/dev/null || true
 ################################################################################
 log_info "Step 5/8: Deploying application code from GitHub..."
 
+# Check if repository is accessible before proceeding
+log_info "Checking repository accessibility..."
+export GIT_TERMINAL_PROMPT=0  # Prevent interactive prompts
+
+if ! sudo -u "$APP_USER" git ls-remote "$GITHUB_REPO" &>/dev/null; then
+    log_error "Cannot access repository: $GITHUB_REPO"
+    log_error "Possible reasons:"
+    log_error "  1. Repository doesn't exist or URL is incorrect"
+    log_error "  2. Repository is private and requires authentication"
+    log_error "  3. Network connectivity issues"
+    log_error ""
+    log_error "For private repositories:"
+    log_error "  - Use SSH: GITHUB_REPO=\"git@github.com:Artorize/artorize-core-router.git\""
+    log_error "  - Setup deploy key in $APP_DIR/.ssh/ before running this script"
+    log_error ""
+    log_error "For public repositories:"
+    log_error "  - Verify the repository URL is correct"
+    log_error "  - Check your network connection"
+    exit 1
+fi
+
+log_info "Repository is accessible ✓"
+
 # Backup config files if they exist
 BACKUP_DIR="/tmp/artorizer-backup-$$"
 if [ -d "$APP_DIR" ]; then
@@ -153,14 +176,14 @@ if [ -d "$APP_DIR" ]; then
     log_info "Directory cleaned"
 fi
 
-# Clone fresh repository
+# Clone fresh repository (non-interactive)
 log_info "Cloning fresh repository from $GITHUB_REPO (branch: $GITHUB_BRANCH)..."
 if [ -d "$APP_DIR" ] && [ ! "$(ls -A $APP_DIR 2>/dev/null)" ]; then
     # Directory exists but is empty
-    sudo -u "$APP_USER" git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$APP_DIR"
+    sudo -u "$APP_USER" GIT_TERMINAL_PROMPT=0 git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$APP_DIR"
 else
     # Directory doesn't exist
-    sudo -u "$APP_USER" git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$APP_DIR"
+    sudo -u "$APP_USER" GIT_TERMINAL_PROMPT=0 git clone --branch "$GITHUB_BRANCH" "$GITHUB_REPO" "$APP_DIR"
 fi
 
 # Restore config files if they were backed up
