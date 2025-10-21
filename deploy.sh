@@ -144,18 +144,16 @@ fi
 # Ensure proper ownership
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
-# Install dependencies (including dev for build)
+# Install dependencies, build, and prune (all in correct directory)
 log_info "Installing npm dependencies..."
 cd "$APP_DIR"
-sudo -u "$APP_USER" npm ci
+sudo -u "$APP_USER" bash -c "cd $APP_DIR && npm ci"
 
-# Build TypeScript
 log_info "Building TypeScript..."
-sudo -u "$APP_USER" npm run build
+sudo -u "$APP_USER" bash -c "cd $APP_DIR && npm run build"
 
-# Remove dev dependencies after build
 log_info "Pruning dev dependencies..."
-sudo -u "$APP_USER" npm prune --production
+sudo -u "$APP_USER" bash -c "cd $APP_DIR && npm prune --production"
 
 ################################################################################
 # 6. Environment Configuration
