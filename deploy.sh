@@ -52,7 +52,7 @@ log_info "Starting deployment for environment: $DEPLOY_ENV"
 ################################################################################
 # 1. System Updates and Prerequisites
 ################################################################################
-log_info "Step 1/8: Updating system packages..."
+log_info "Step 1/7: Updating system packages..."
 apt-get update -y
 apt-get upgrade -y
 
@@ -73,7 +73,7 @@ apt-get install -y \
 ################################################################################
 # 2. Install Node.js
 ################################################################################
-log_info "Step 2/8: Installing Node.js ${NODE_VERSION}..."
+log_info "Step 2/7: Installing Node.js ${NODE_VERSION}..."
 
 # Remove old NodeSource repository if it exists
 rm -f /etc/apt/sources.list.d/nodesource.list
@@ -101,7 +101,7 @@ log_info "Node.js version check passed (v$current_major >= v$required_major)"
 ################################################################################
 # 3. Create Application User
 ################################################################################
-log_info "Step 3/8: Creating application user..."
+log_info "Step 3/7: Creating application user..."
 
 if ! id "$APP_USER" &>/dev/null; then
     useradd -r -s /bin/bash -d "$APP_DIR" -m "$APP_USER"
@@ -113,7 +113,7 @@ fi
 ################################################################################
 # 4. Setup Application Directory
 ################################################################################
-log_info "Step 4/8: Setting up application directory..."
+log_info "Step 4/7: Setting up application directory..."
 
 # Create directories
 mkdir -p "$APP_DIR"
@@ -126,7 +126,7 @@ chown -R "$APP_USER:$APP_USER" "$LOG_DIR"
 ################################################################################
 # 5. Clone/Update Repository
 ################################################################################
-log_info "Step 5/8: Cloning repository from $GITHUB_REPO (branch: $GITHUB_BRANCH)..."
+log_info "Step 5/7: Cloning repository from $GITHUB_REPO (branch: $GITHUB_BRANCH)..."
 
 # Preserve existing config if it exists
 SAVED_ENV=""
@@ -176,7 +176,7 @@ sudo -u "$APP_USER" bash -c "cd $APP_DIR && npm prune --production"
 ################################################################################
 # 6. Environment Configuration
 ################################################################################
-log_info "Step 6/8: Configuring environment..."
+log_info "Step 6/7: Configuring environment..."
 
 ENV_FILE="$APP_DIR/.env"
 
@@ -230,7 +230,7 @@ log_info ".env file configured successfully"
 ################################################################################
 # 7. Setup Systemd Service
 ################################################################################
-log_info "Step 7/8: Configuring systemd service..."
+log_info "Step 7/7: Configuring systemd service..."
 
 cat > "/etc/systemd/system/$APP_NAME.service" << EOF
 [Unit]
@@ -278,72 +278,7 @@ EOF
 systemctl daemon-reload
 
 ################################################################################
-# 8. Setup Nginx Reverse Proxy
-################################################################################
-log_info "Step 8/8: Configuring Nginx reverse proxy..."
-
-cat > "/etc/nginx/sites-available/$APP_NAME" << 'EOF'
-upstream artorizer_router {
-    # If using cluster mode (WORKERS > 1), single backend is fine
-    # as OS handles load balancing across workers on same port
-    server 127.0.0.1:7000;
-    keepalive 64;
-}
-
-server {
-    listen 80;
-    server_name _;  # Update with your domain
-
-    # Increase buffer sizes for large uploads
-    client_max_body_size 256M;
-    client_body_buffer_size 10M;
-
-    # Timeouts
-    proxy_connect_timeout 60s;
-    proxy_send_timeout 60s;
-    proxy_read_timeout 60s;
-
-    # Logging
-    access_log /var/log/nginx/artorizer-access.log;
-    error_log /var/log/nginx/artorizer-error.log;
-
-    location / {
-        proxy_pass http://artorizer_router;
-        proxy_http_version 1.1;
-
-        # Headers
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        proxy_cache_bypass $http_upgrade;
-
-        # Disable buffering for streaming
-        proxy_buffering off;
-    }
-
-    # Health check endpoint
-    location /health {
-        access_log off;
-        proxy_pass http://artorizer_router;
-    }
-}
-EOF
-
-# Enable site
-ln -sf "/etc/nginx/sites-available/$APP_NAME" "/etc/nginx/sites-enabled/$APP_NAME"
-
-# Remove default site if exists
-rm -f /etc/nginx/sites-enabled/default
-
-# Test nginx config
-nginx -t
-
-################################################################################
-# 9. Configure Firewall
+# 8. Configure Firewall
 ################################################################################
 log_info "Configuring firewall..."
 
@@ -358,7 +293,7 @@ ufw allow 443/tcp
 echo "y" | ufw enable || true
 
 ################################################################################
-# 10. Configure Redis
+# 9. Configure Redis
 ################################################################################
 log_info "Configuring Redis..."
 
@@ -367,7 +302,7 @@ systemctl enable redis-server
 systemctl start redis-server
 
 ################################################################################
-# 11. Start Services
+# 10. Start Services
 ################################################################################
 log_info "Starting services..."
 
@@ -375,14 +310,11 @@ log_info "Starting services..."
 systemctl enable "$APP_NAME"
 systemctl restart "$APP_NAME"
 
-# Restart nginx
-systemctl restart nginx
-
 # Wait a moment for service to start
 sleep 3
 
 ################################################################################
-# 12. Verify Deployment
+# 11. Verify Deployment
 ################################################################################
 log_info "Verifying deployment..."
 
@@ -392,14 +324,6 @@ if systemctl is-active --quiet "$APP_NAME"; then
 else
     log_error "✗ Service $APP_NAME failed to start"
     log_error "Check logs: journalctl -u $APP_NAME -n 50"
-    exit 1
-fi
-
-# Check nginx status
-if systemctl is-active --quiet nginx; then
-    log_info "✓ Nginx is running"
-else
-    log_error "✗ Nginx failed to start"
     exit 1
 fi
 
@@ -440,17 +364,13 @@ echo "  - View logs:        journalctl -u $APP_NAME -f"
 echo "  - Restart service:  systemctl restart $APP_NAME"
 echo "  - Check status:     systemctl status $APP_NAME"
 echo "  - View app logs:    tail -f $LOG_DIR/router.log"
-echo "  - Nginx logs:       tail -f /var/log/nginx/artorizer-access.log"
 echo ""
 echo "⚠️  IMPORTANT NEXT STEPS:"
 echo "  1. Edit environment file: nano $ENV_FILE"
 echo "  2. Update BACKEND_URL, PROCESSOR_URL, CALLBACK_AUTH_TOKEN"
-echo "  3. Update Nginx server_name with your domain"
-echo "  4. Setup SSL/TLS with certbot (recommended)"
-echo "  5. Restart service: systemctl restart $APP_NAME"
+echo "  3. Restart service: systemctl restart $APP_NAME"
 echo ""
 echo "🔒 Security Recommendations:"
-echo "  - Setup SSL: certbot --nginx -d yourdomain.com"
 echo "  - Review firewall: ufw status"
 echo "  - Secure Redis: add password in /etc/redis/redis.conf"
 echo ""

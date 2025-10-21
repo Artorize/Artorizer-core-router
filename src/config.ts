@@ -25,11 +25,6 @@ const configSchema = z.object({
     timeout: z.coerce.number().default(30000),
   }),
 
-  router: z.object({
-    baseUrl: z.string().default('http://localhost:7000'),
-    callbackAuthToken: z.string().default('default-insecure-token-change-me'),
-  }),
-
   rateLimit: z.object({
     max: z.coerce.number().default(100),
     window: z.coerce.number().default(60000),
@@ -60,11 +55,6 @@ export const config = configSchema.parse({
   backend: {
     url: process.env.BACKEND_URL,
     timeout: process.env.BACKEND_TIMEOUT,
-  },
-
-  router: {
-    baseUrl: process.env.ROUTER_BASE_URL,
-    callbackAuthToken: process.env.CALLBACK_AUTH_TOKEN,
   },
 
   rateLimit: {
