@@ -5,6 +5,7 @@ dotenv.config();
 
 const configSchema = z.object({
   port: z.coerce.number().default(7000),
+  host: z.string().default('127.0.0.1'),
   nodeEnv: z.enum(['development', 'production', 'test']).default('development'),
   workers: z.coerce.number().default(4),
 
@@ -41,6 +42,7 @@ const configSchema = z.object({
 
 export const config = configSchema.parse({
   port: process.env.PORT,
+  host: process.env.HOST,
   nodeEnv: process.env.NODE_ENV,
   workers: process.env.WORKERS,
 

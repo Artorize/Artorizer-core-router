@@ -214,7 +214,7 @@ NODE_ENV=production
 
 # Server Configuration
 PORT=7000
-HOST=0.0.0.0
+HOST=127.0.0.1
 WORKERS=4
 
 # External Services (UPDATE THESE!)

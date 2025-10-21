@@ -9,7 +9,7 @@ async function startWorker() {
     const app = await buildApp();
     await app.listen({
       port: config.port,
-      host: '0.0.0.0',
+      host: config.host,
     });
 
     app.log.info(`Worker ${process.pid} started on port ${config.port}`);
