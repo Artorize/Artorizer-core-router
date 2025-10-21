@@ -75,17 +75,28 @@ apt-get install -y \
 ################################################################################
 log_info "Step 2/8: Installing Node.js ${NODE_VERSION}..."
 
-# Add NodeSource repository
-if [ ! -f /etc/apt/sources.list.d/nodesource.list ]; then
-    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
-    apt-get install -y nodejs
-fi
+# Remove old NodeSource repository if it exists
+rm -f /etc/apt/sources.list.d/nodesource.list
+
+# Add NodeSource repository and install
+curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
+apt-get install -y nodejs
 
 # Verify installation
 node_version=$(node --version)
 npm_version=$(npm --version)
 log_info "Node.js version: $node_version"
 log_info "npm version: $npm_version"
+
+# Verify minimum required version (Node 18+)
+required_major=18
+current_major=$(node --version | cut -d'v' -f2 | cut -d'.' -f1)
+if [ "$current_major" -lt "$required_major" ]; then
+    log_error "Node.js $current_major detected, but version $required_major+ is required"
+    log_error "Please upgrade Node.js and try again"
+    exit 1
+fi
+log_info "Node.js version check passed (v$current_major >= v$required_major)"
 
 ################################################################################
 # 3. Create Application User
