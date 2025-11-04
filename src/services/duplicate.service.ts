@@ -24,6 +24,31 @@ export class DuplicateDetectionService {
     this.timeout = config.backend.timeout;
   }
 
+  private normalizeArtwork<T extends Record<string, any>>(artwork: T | null | undefined): T | null | undefined {
+    if (!artwork) {
+      return artwork;
+    }
+
+    const normalizedId =
+      artwork._id ??
+      artwork.id ??
+      artwork.artwork_id ??
+      artwork.artworkId ??
+      artwork.metadata?.id ??
+      artwork.metadata?._id;
+
+    if (!normalizedId) {
+      return artwork;
+    }
+
+    return {
+      ...artwork,
+      _id: normalizedId,
+      id: normalizedId,
+      artwork_id: normalizedId,
+    };
+  }
+
   /**
    * Check if artwork exists by checksum, title+artist, or tags
    * Uses Backend API: GET /artworks/check-exists
@@ -67,7 +92,7 @@ export class DuplicateDetectionService {
       if (data.exists && data.matches && data.matches.length > 0) {
         return {
           exists: true,
-          artwork: data.matches[0], // Return first match
+          artwork: this.normalizeArtwork(data.matches[0]) ?? data.matches[0],
         };
       }
 
@@ -103,7 +128,9 @@ export class DuplicateDetectionService {
         throw new Error(`Backend returned ${response.statusCode}`);
       }
 
-      return await response.body.json();
+      const rawArtwork = await response.body.json() as Record<string, any> | null;
+      const artwork = this.normalizeArtwork(rawArtwork);
+      return artwork;
     } catch (error) {
       if ((error as any).message?.includes('404')) {
         return null;
@@ -133,7 +160,12 @@ export class DuplicateDetectionService {
         throw new Error(`Backend returned ${response.statusCode}`);
       }
 
-      const artwork = await response.body.json() as any;
+      const rawArtwork = await response.body.json() as Record<string, any> | null;
+      const artwork = this.normalizeArtwork(rawArtwork);
+
+      if (!artwork) {
+        return null;
+      }
 
       // Return only status-related fields
       return {

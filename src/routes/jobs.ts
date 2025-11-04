@@ -7,6 +7,13 @@ interface JobParams {
   id: string;
 }
 
+const getArtworkId = (artwork: any): string | undefined => {
+  if (!artwork) {
+    return undefined;
+  }
+  return artwork._id ?? artwork.id ?? artwork.artwork_id ?? artwork.artworkId;
+};
+
 export async function jobsRoute(app: FastifyInstance) {
   /**
    * GET /jobs/:id
@@ -134,6 +141,16 @@ export async function jobsRoute(app: FastifyInstance) {
           });
         }
 
+        const resolvedArtworkId = getArtworkId(artwork);
+
+        if (!resolvedArtworkId) {
+          request.log.error({ job_id: id, artwork }, 'Artwork payload missing identifier');
+          return reply.status(502).send({
+            error: 'Artwork metadata missing identifier',
+            statusCode: 502,
+          });
+        }
+
         // If artwork exists in backend, it's completed
         // Use router's base URL for public-facing download links
         const routerBaseUrl = config.router.baseUrl;
@@ -141,7 +158,9 @@ export async function jobsRoute(app: FastifyInstance) {
         return reply.status(200).send({
           job_id: id, // Return the original job_id from the request
           status: 'completed',
-          artwork_id: artwork._id,
+          artwork_id: resolvedArtworkId,
+          _id: resolvedArtworkId,
+          id: resolvedArtworkId,
           title: artwork.title,
           artist: artwork.artist,
           description: artwork.description,
@@ -221,11 +240,21 @@ export async function jobsRoute(app: FastifyInstance) {
           });
         }
 
+        const resolvedArtworkId = getArtworkId(artwork);
+
+        if (!resolvedArtworkId) {
+          request.log.error({ job_id: id, artwork }, 'Artwork payload missing identifier');
+          return reply.status(502).send({
+            error: 'Artwork metadata missing identifier',
+            statusCode: 502,
+          });
+        }
+
         // Fetch file from backend and stream to client
         const baseUrl = config.backend.url;
-        const downloadUrl = `${baseUrl}/artworks/${artwork._id}?variant=${variant}`;
+        const downloadUrl = `${baseUrl}/artworks/${resolvedArtworkId}?variant=${variant}`;
 
-        request.log.info({ artwork_id: artwork._id, variant, downloadUrl }, 'Proxying download from backend');
+        request.log.info({ artwork_id: resolvedArtworkId, variant, downloadUrl }, 'Proxying download from backend');
 
         const { request: backendRequest } = await import('undici');
         const response = await backendRequest(downloadUrl, {
@@ -242,7 +271,8 @@ export async function jobsRoute(app: FastifyInstance) {
 
         // Forward content-type and content-disposition headers
         const contentType = response.headers['content-type'] || 'application/octet-stream';
-        const contentDisposition = response.headers['content-disposition'] || `attachment; filename="${artwork._id}-${variant}"`;
+        const contentDisposition =
+          response.headers['content-disposition'] || `attachment; filename="${resolvedArtworkId}-${variant}"`;
 
         reply.header('content-type', contentType);
         reply.header('content-disposition', contentDisposition);
