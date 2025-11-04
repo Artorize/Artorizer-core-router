@@ -85,16 +85,21 @@ export class DuplicateDetectionService {
    */
   async getArtworkById(id: string): Promise<any | null> {
     try {
-      const response = await request(`${this.baseUrl}/artworks/${id}/metadata`, {
+      const url = `${this.baseUrl}/artworks/${id}/metadata`;
+      logger.info({ artwork_id: id, url }, 'Querying backend for artwork');
+
+      const response = await request(url, {
         method: 'GET',
         headersTimeout: this.timeout,
       });
 
       if (response.statusCode === 404) {
+        logger.info({ artwork_id: id }, 'Artwork not found in backend');
         return null;
       }
 
       if (response.statusCode !== 200) {
+        logger.error({ artwork_id: id, statusCode: response.statusCode }, 'Backend returned error');
         throw new Error(`Backend returned ${response.statusCode}`);
       }
 

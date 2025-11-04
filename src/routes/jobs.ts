@@ -115,8 +115,17 @@ export async function jobsRoute(app: FastifyInstance) {
           });
         }
 
+        // Use backend_artwork_id from jobState if available (completed jobs)
+        // Otherwise fall back to using the id parameter (for backwards compatibility)
+        const artworkId =
+          jobState && jobState.status === 'completed' && jobState.backend_artwork_id
+            ? jobState.backend_artwork_id
+            : id;
+
+        request.log.info({ job_id: id, artwork_id: artworkId, jobState }, 'Fetching artwork from backend');
+
         const duplicateService = getDuplicateService();
-        const artwork = await duplicateService.getArtworkById(id);
+        const artwork = await duplicateService.getArtworkById(artworkId);
 
         if (!artwork) {
           return reply.status(404).send({
