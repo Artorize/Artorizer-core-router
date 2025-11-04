@@ -1,5 +1,15 @@
 import { request } from 'undici';
+import pino from 'pino';
 import { config } from '../config';
+
+// Create logger for duplicate service
+const logger = pino({
+  level: config.nodeEnv === 'production' ? 'info' : 'debug',
+  formatters: {
+    level: (label) => ({ level: label }),
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
 
 /**
  * Service for checking duplicates and retrieving artwork metadata via Backend API
@@ -64,7 +74,7 @@ export class DuplicateDetectionService {
       return { exists: false };
     } catch (error) {
       // On error, assume not exists (fail open for duplicate check)
-      console.error('Error checking for duplicates:', error);
+      logger.error({ error }, 'Error checking for duplicates');
       return { exists: false };
     }
   }

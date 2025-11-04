@@ -11,6 +11,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: config.nodeEnv === 'production' ? 'info' : 'debug',
+      formatters: {
+        level: (label) => ({ level: label }),
+      },
+      timestamp: () => `,"time":"${new Date().toISOString()}"`,
       transport:
         config.nodeEnv === 'development'
           ? {
@@ -78,7 +82,7 @@ export async function closeApp(app: FastifyInstance): Promise<void> {
   try {
     await app.close();
   } catch (error) {
-    console.error('Error during shutdown:', error);
+    app.log.error({ error }, 'Error during shutdown');
     process.exit(1);
   }
 }

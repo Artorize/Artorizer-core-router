@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { config } from '../config';
+import { getJobTrackerService } from '../services/job-tracker.service';
 
 interface CallbackPayload {
   job_id: string;
@@ -68,6 +69,15 @@ export async function callbackRoute(app: FastifyInstance) {
         if (payload.status === 'failed') {
           request.log.error({ job_id: payload.job_id, error: payload.error }, 'Job processing failed');
 
+          // Update job state in Redis
+          const jobTracker = getJobTrackerService();
+          await jobTracker.updateJobCompletion(
+            payload.job_id,
+            payload.backend_artwork_id || '',
+            'failed',
+            payload.error
+          );
+
           return reply.status(200).send({
             received: true,
             job_id: payload.job_id,
@@ -92,8 +102,13 @@ export async function callbackRoute(app: FastifyInstance) {
           'Job completed successfully - artwork stored in backend by processor'
         );
 
-        // TODO: Store job completion status in database/cache if needed for job tracking
-        // For now, we just log and acknowledge receipt
+        // Update job state in Redis
+        const jobTracker = getJobTrackerService();
+        await jobTracker.updateJobCompletion(
+          payload.job_id,
+          payload.backend_artwork_id,
+          'completed'
+        );
 
         return reply.status(200).send({
           received: true,

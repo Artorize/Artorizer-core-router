@@ -1,6 +1,16 @@
 import Bull, { Queue, Job } from 'bull';
+import pino from 'pino';
 import { config } from '../config';
 import { ProtectRequest } from '../types/schemas';
+
+// Create logger for queue service
+const logger = pino({
+  level: config.nodeEnv === 'production' ? 'info' : 'debug',
+  formatters: {
+    level: (label) => ({ level: label }),
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
 
 export interface ProcessorJobData {
   payload: ProtectRequest;
@@ -34,11 +44,11 @@ export class QueueService {
 
   private setupEventHandlers(): void {
     this.queue.on('error', (error) => {
-      console.error('Queue error:', error);
+      logger.error({ error }, 'Queue error occurred');
     });
 
     this.queue.on('failed', (job, error) => {
-      console.error(`Job ${job.id} failed:`, error.message);
+      logger.error({ job_id: job.id, error: error.message }, 'Job processing failed');
     });
   }
 

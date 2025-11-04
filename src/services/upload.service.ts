@@ -1,3 +1,15 @@
+import pino from 'pino';
+import { config } from '../config';
+
+// Create logger for upload storage service
+const logger = pino({
+  level: config.nodeEnv === 'production' ? 'info' : 'debug',
+  formatters: {
+    level: (label) => ({ level: label }),
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
+
 /**
  * Temporary storage for original images until processor callback completes
  * Stores images in memory with automatic cleanup after 1 hour
@@ -115,7 +127,7 @@ export class UploadStorageService {
     }
 
     if (deletedCount > 0) {
-      console.log(`[UploadStorage] Cleaned up ${deletedCount} expired uploads`);
+      logger.info({ deleted_count: deletedCount }, 'Cleaned up expired uploads');
     }
   }
 

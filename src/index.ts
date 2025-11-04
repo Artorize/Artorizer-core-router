@@ -1,7 +1,17 @@
 import cluster from 'cluster';
 import os from 'os';
+import pino from 'pino';
 import { config } from './config';
 import { buildApp, closeApp } from './app';
+
+// Create logger for primary process (cluster manager)
+const logger = pino({
+  level: config.nodeEnv === 'production' ? 'info' : 'debug',
+  formatters: {
+    level: (label) => ({ level: label }),
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
 
 async function startWorker() {
   try {
@@ -24,7 +34,7 @@ async function startWorker() {
       });
     });
   } catch (error) {
-    console.error('Failed to start worker:', error);
+    logger.error({ error, pid: process.pid }, 'Failed to start worker');
     process.exit(1);
   }
 }
@@ -32,7 +42,7 @@ async function startWorker() {
 async function startCluster() {
   const numWorkers = Math.min(config.workers, os.cpus().length);
 
-  console.log(`Master ${process.pid} starting ${numWorkers} workers...`);
+  logger.info({ pid: process.pid, workers: numWorkers }, 'Master process starting workers');
 
   // Fork workers
   for (let i = 0; i < numWorkers; i++) {
@@ -41,7 +51,10 @@ async function startCluster() {
 
   // Replace dead workers
   cluster.on('exit', (worker, code, signal) => {
-    console.log(`Worker ${worker.process.pid} died (${signal || code}). Restarting...`);
+    logger.warn(
+      { worker_pid: worker.process.pid, code, signal },
+      'Worker process died, restarting'
+    );
     cluster.fork();
   });
 
@@ -49,14 +62,14 @@ async function startCluster() {
   const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
   signals.forEach((signal) => {
     process.on(signal, () => {
-      console.log(`${signal} received, shutting down all workers...`);
+      logger.info({ signal }, 'Shutdown signal received, stopping all workers');
 
       for (const id in cluster.workers) {
         cluster.workers[id]?.kill();
       }
 
       setTimeout(() => {
-        console.log('Forcing shutdown...');
+        logger.warn('Forcing shutdown after timeout');
         process.exit(0);
       }, 10000);
     });

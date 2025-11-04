@@ -11,6 +11,7 @@ import {
 import { getDuplicateService } from '../services/duplicate.service';
 import { getProcessorService } from '../services/processor.service';
 import { getBackendService } from '../services/backend.service';
+import { getJobTrackerService } from '../services/job-tracker.service';
 import { config } from '../config';
 
 interface MultipartBody {
@@ -176,6 +177,10 @@ export async function protectRoute(app: FastifyInstance) {
         },
         'Generated one-time backend auth token for processor upload'
       );
+
+      // Track job submission in Redis
+      const jobTracker = getJobTrackerService();
+      await jobTracker.trackJobSubmission(jobId);
 
       // Submit to processor with callback and backend auth token
       const processorService = getProcessorService();

@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getDuplicateService } from '../services/duplicate.service';
+import { getJobTrackerService } from '../services/job-tracker.service';
 import { config } from '../config';
 
 interface JobParams {
@@ -18,6 +19,41 @@ export async function jobsRoute(app: FastifyInstance) {
       try {
         const { id } = request.params;
 
+        // First check Redis for job state (handles processing jobs)
+        const jobTracker = getJobTrackerService();
+        const jobState = await jobTracker.getJobState(id);
+
+        if (jobState) {
+          // Job is tracked in Redis
+          if (jobState.status === 'processing') {
+            return reply.status(200).send({
+              job_id: jobState.job_id,
+              status: 'processing',
+              submitted_at: jobState.submitted_at,
+              message: 'Job is currently being processed',
+            });
+          } else if (jobState.status === 'failed') {
+            return reply.status(200).send({
+              job_id: jobState.job_id,
+              status: 'failed',
+              submitted_at: jobState.submitted_at,
+              completed_at: jobState.completed_at,
+              error: jobState.error,
+            });
+          } else if (jobState.status === 'completed' && jobState.backend_artwork_id) {
+            // Job completed, return with backend artwork ID
+            return reply.status(200).send({
+              job_id: jobState.job_id,
+              status: 'completed',
+              submitted_at: jobState.submitted_at,
+              completed_at: jobState.completed_at,
+              backend_artwork_id: jobState.backend_artwork_id,
+              message: 'Job completed successfully',
+            });
+          }
+        }
+
+        // If not in Redis, check backend (for older jobs or if Redis is down)
         const duplicateService = getDuplicateService();
         const job = await duplicateService.getJobStatus(id);
 
@@ -54,6 +90,30 @@ export async function jobsRoute(app: FastifyInstance) {
     async (request: FastifyRequest<{ Params: JobParams }>, reply: FastifyReply) => {
       try {
         const { id } = request.params;
+
+        // First check Redis for job state
+        const jobTracker = getJobTrackerService();
+        const jobState = await jobTracker.getJobState(id);
+
+        if (jobState && jobState.status === 'processing') {
+          return reply.status(409).send({
+            error: 'Job is still processing',
+            job_id: jobState.job_id,
+            status: 'processing',
+            submitted_at: jobState.submitted_at,
+            statusCode: 409,
+          });
+        }
+
+        if (jobState && jobState.status === 'failed') {
+          return reply.status(200).send({
+            job_id: jobState.job_id,
+            status: 'failed',
+            submitted_at: jobState.submitted_at,
+            completed_at: jobState.completed_at,
+            error: jobState.error,
+          });
+        }
 
         const duplicateService = getDuplicateService();
         const artwork = await duplicateService.getArtworkById(id);

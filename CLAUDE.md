@@ -59,9 +59,10 @@ The clustering is implemented in `src/index.ts`. When `WORKERS > 1`, the primary
 3. **Routing** (`src/routes/protect.ts`): Main `/protect` endpoint logic
 4. **Validation** (`src/types/schemas.ts`): Zod schemas for type-safe validation
 5. **Services**:
+   - `job-tracker.service.ts`: Redis-based job state tracking (processing/completed/failed status)
    - `duplicate.service.ts`: Backend API client for duplicate detection + artwork queries
    - `processor.service.ts`: HTTP client with circuit breaker + callback-based workflow (includes backend URL for direct upload)
-   - `backend.service.ts`: HTTP client for backend interactions (not used in optimized flow - processor uploads directly)
+   - `backend.service.ts`: HTTP client for backend interactions (token generation)
    - `upload.service.ts`: Deprecated - no longer needed (processor uploads directly to backend)
    - `queue.service.ts`: Bull/Redis queue (prepared for future async processing)
 6. **Utilities** (`src/utils/normalize.ts`): Field normalization (camelCase ↔ snake_case), boolean parsing, tag validation
@@ -76,9 +77,11 @@ Request → Content-type detection (multipart/JSON)
        → Zod validation
        → Duplicate check (Backend API: checksum → title+artist → tags)
        → If duplicate: return existing artwork (200)
-       → If new: submit to processor with backend_url (202)
+       → If new: track job in Redis with "processing" status
+       → Submit to processor with backend_url (202 with status: "processing")
        → Processor processes and uploads directly to backend
        → Processor sends callback with backend artwork_id
+       → Update job state in Redis with "completed" or "failed" status
 ```
 
 ### Circuit Breaker Pattern
@@ -122,10 +125,9 @@ Accepts `multipart/form-data` or `application/json`.
 - One of: `image` (file) | `image_url` (URL) | `local_path` (string)
 
 **Response:**
-- `202 Accepted`: `{"job_id": "...", "status": "queued"}` (new job)
+- `202 Accepted`: `{"job_id": "...", "status": "processing"}` (new job submitted for processing)
 - `200 OK`: `{"job_id": "...", "status": "exists", "artwork": {...}}` (duplicate)
 - `400 Bad Request`: Validation error
-- `502 Bad Gateway`: Processor error
 - `503 Service Unavailable`: Circuit breaker open
 
 ### POST /callbacks/process-complete
@@ -151,8 +153,9 @@ Receives async completion callback from processor after it uploads artwork to ba
 
 **Processing:**
 1. Validates authorization token
-2. Logs job completion with backend artwork ID
-3. Returns acknowledgment (no file transfers needed)
+2. Updates job state in Redis with completion status
+3. Logs job completion with backend artwork ID
+4. Returns acknowledgment (no file transfers needed)
 
 **Response:**
 - `200 OK`: `{"received": true, "job_id": "...", "artwork_id": "...", "status": "completed"}`
@@ -161,20 +164,23 @@ Receives async completion callback from processor after it uploads artwork to ba
 
 ### GET /jobs/{id}
 
-Get job status.
+Get job status. Checks Redis first for processing jobs, then falls back to backend for completed jobs.
 
 **Response:**
-- `200 OK`: `{"job_id": "...", "status": "completed", "completedAt": "...", "uploadedAt": "..."}`
+- `200 OK` (processing): `{"job_id": "...", "status": "processing", "submitted_at": "...", "message": "Job is currently being processed"}`
+- `200 OK` (completed): `{"job_id": "...", "status": "completed", "submitted_at": "...", "completed_at": "...", "backend_artwork_id": "..."}`
+- `200 OK` (failed): `{"job_id": "...", "status": "failed", "submitted_at": "...", "completed_at": "...", "error": {...}}`
 - `404 Not Found`: Job doesn't exist
 
 ### GET /jobs/{id}/result
 
-Get complete job result with backend URLs.
+Get complete job result with backend URLs. Returns 409 if job is still processing.
 
 **Response:**
-- `200 OK`: Full artwork metadata + URLs to backend files
+- `200 OK`: Full artwork metadata + URLs to backend files (when completed)
+- `200 OK`: Failed job details (when failed)
 - `404 Not Found`: Job doesn't exist
-- `409 Conflict`: Job not yet completed
+- `409 Conflict`: Job is still processing
 
 ### GET /jobs/{id}/download/{variant}
 
@@ -278,13 +284,35 @@ Uses Sharp for image validation:
 
 Returns first match found. The backend handles all database operations, indexing, and query optimization.
 
+## Job State Tracking
+
+`job-tracker.service.ts` manages job states using Redis for real-time status updates:
+
+**Job States:**
+- `processing`: Job submitted to processor, work in progress
+- `completed`: Processor finished successfully, artwork uploaded to backend
+- `failed`: Processing encountered an error
+
+**Redis Storage:**
+- Key format: `job:{jobId}`
+- TTL: 1 hour (automatic cleanup)
+- Stored data: job_id, status, submitted_at, completed_at, backend_artwork_id, error
+
+**Flow:**
+1. When job submitted via POST /protect → track with "processing" status
+2. When callback received → update with "completed" or "failed" status
+3. When GET /jobs/{id} queried → check Redis first, then fall back to backend
+4. Redis failures are silent - system degrades gracefully to backend-only queries
+
+This allows clients to poll GET /jobs/{id} and receive "processing" status immediately, rather than 404 errors while the job is being processed.
+
 ## Error Handling
 
 Structured error responses:
 - **400**: Zod validation errors, malformed requests
-- **404**: Route not found
+- **404**: Route or job not found
+- **409**: Job still processing (when requesting results)
 - **500**: Internal errors (details logged, generic message returned)
-- **502**: Processor returned error (wraps upstream error)
 - **503**: Circuit breaker open (fast fail)
 
 All errors logged via Pino with request ID for tracing.
@@ -301,10 +329,12 @@ All errors logged via Pino with request ID for tracing.
 
 ### Logging
 
-Uses Pino structured logging:
+Uses Pino structured logging with journald-friendly output:
 - **Development**: Pretty-printed with colors via `pino-pretty`
-- **Production**: JSON format for log aggregation
+- **Production**: Clean JSON format for systemd/journald (no emojis, no special characters)
 - Request IDs (`reqId`) for distributed tracing
+- All log messages use structured fields for better filtering and analysis
+- No console.log/console.error usage - all logging goes through Pino
 
 ### Dependencies
 
@@ -328,9 +358,10 @@ src/
 │   ├── jobs.ts           # GET /jobs/{id}, GET /jobs/{id}/result
 │   └── health.ts         # GET /health, /health/live, /health/ready
 ├── services/
-│   ├── duplicate.service.ts   # Backend API client (duplicates + artwork queries)
-│   ├── processor.service.ts   # HTTP client with callback workflow + backend URL injection
-│   ├── backend.service.ts     # HTTP client for backend storage (deprecated in optimized flow)
+│   ├── job-tracker.service.ts     # Redis-based job state tracking
+│   ├── duplicate.service.ts       # Backend API client (duplicates + artwork queries)
+│   ├── processor.service.ts       # HTTP client with callback workflow + backend URL injection
+│   ├── backend.service.ts         # HTTP client for backend storage (token generation)
 │   ├── upload.service.ts      # Deprecated - no longer needed
 │   └── queue.service.ts       # Bull queue (future)
 ├── types/

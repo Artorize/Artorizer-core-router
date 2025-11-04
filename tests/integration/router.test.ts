@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import FormData from 'form-data';
+import { FormData, Blob } from 'undici';
 
 // Base URL for the deployed router
 const BASE_URL = process.env.ROUTER_URL || 'https://router.artorizer.com';
@@ -22,11 +22,9 @@ describe('Router API Integration Tests', () => {
     it('should accept image upload and return job_id', async () => {
       const formData = new FormData();
       const imageBuffer = readFileSync(TEST_IMAGE_PATH);
+      const imageBlob = new Blob([imageBuffer], { type: 'image/jpeg' });
 
-      formData.append('image', imageBuffer, {
-        filename: 'mona_lisa.jpg',
-        contentType: 'image/jpeg',
-      });
+      formData.append('image', imageBlob, 'mona_lisa.jpg');
       formData.append('artist_name', 'Leonardo da Vinci');
       formData.append('artwork_title', 'Mona Lisa Test');
       formData.append('tags', 'renaissance,portrait,test');
@@ -34,8 +32,7 @@ describe('Router API Integration Tests', () => {
 
       const response = await fetch(`${BASE_URL}/protect`, {
         method: 'POST',
-        body: formData as any,
-        headers: formData.getHeaders(),
+        body: formData,
       });
 
       const data = await response.json();
@@ -61,18 +58,15 @@ describe('Router API Integration Tests', () => {
     it('should detect duplicate on second upload of same image', async () => {
       const formData = new FormData();
       const imageBuffer = readFileSync(TEST_IMAGE_PATH);
+      const imageBlob = new Blob([imageBuffer], { type: 'image/jpeg' });
 
-      formData.append('image', imageBuffer, {
-        filename: 'mona_lisa.jpg',
-        contentType: 'image/jpeg',
-      });
+      formData.append('image', imageBlob, 'mona_lisa.jpg');
       formData.append('artist_name', 'Leonardo da Vinci');
       formData.append('artwork_title', 'Mona Lisa Test');
 
       const response = await fetch(`${BASE_URL}/protect`, {
         method: 'POST',
-        body: formData as any,
-        headers: formData.getHeaders(),
+        body: formData,
       });
 
       const data = await response.json();
@@ -92,17 +86,14 @@ describe('Router API Integration Tests', () => {
     it('should reject invalid request without required fields', async () => {
       const formData = new FormData();
       const imageBuffer = readFileSync(TEST_IMAGE_PATH);
+      const imageBlob = new Blob([imageBuffer], { type: 'image/jpeg' });
 
-      formData.append('image', imageBuffer, {
-        filename: 'mona_lisa.jpg',
-        contentType: 'image/jpeg',
-      });
+      formData.append('image', imageBlob, 'mona_lisa.jpg');
       // Missing artist_name and artwork_title
 
       const response = await fetch(`${BASE_URL}/protect`, {
         method: 'POST',
-        body: formData as any,
-        headers: formData.getHeaders(),
+        body: formData,
       });
 
       expect(response.status).toBe(400);
