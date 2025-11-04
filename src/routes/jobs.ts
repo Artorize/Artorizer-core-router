@@ -220,12 +220,34 @@ export async function jobsRoute(app: FastifyInstance) {
           });
         }
 
-        // If artwork exists in backend, it's completed
+        // Fetch file from backend and stream to client
         const baseUrl = config.backend.url;
         const downloadUrl = `${baseUrl}/artworks/${artwork._id}?variant=${variant}`;
 
-        // Redirect to backend
-        return reply.redirect(downloadUrl, 307);
+        request.log.info({ artwork_id: artwork._id, variant, downloadUrl }, 'Proxying download from backend');
+
+        const { request: backendRequest } = await import('undici');
+        const response = await backendRequest(downloadUrl, {
+          method: 'GET',
+        });
+
+        if (response.statusCode !== 200) {
+          request.log.error({ statusCode: response.statusCode, variant }, 'Backend download failed');
+          return reply.status(response.statusCode).send({
+            error: `Failed to fetch ${variant} from backend`,
+            statusCode: response.statusCode,
+          });
+        }
+
+        // Forward content-type and content-disposition headers
+        const contentType = response.headers['content-type'] || 'application/octet-stream';
+        const contentDisposition = response.headers['content-disposition'] || `attachment; filename="${artwork._id}-${variant}"`;
+
+        reply.header('content-type', contentType);
+        reply.header('content-disposition', contentDisposition);
+
+        // Stream the response body to client
+        return reply.send(response.body);
       } catch (error: any) {
         request.log.error(error, 'Error proxying download');
         return reply.status(500).send({
