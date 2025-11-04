@@ -181,8 +181,37 @@ export async function jobsRoute(app: FastifyInstance) {
       try {
         const { id, variant } = request.params;
 
+        // First check Redis for job state to get backend_artwork_id
+        const jobTracker = getJobTrackerService();
+        const jobState = await jobTracker.getJobState(id);
+
+        if (jobState && jobState.status === 'processing') {
+          return reply.status(409).send({
+            error: 'Job is still processing',
+            job_id: jobState.job_id,
+            status: 'processing',
+            statusCode: 409,
+          });
+        }
+
+        if (jobState && jobState.status === 'failed') {
+          return reply.status(404).send({
+            error: 'Job failed - no files available',
+            job_id: jobState.job_id,
+            status: 'failed',
+            statusCode: 404,
+          });
+        }
+
+        // Use backend_artwork_id from jobState if available (completed jobs)
+        // Otherwise fall back to using the id parameter (for backwards compatibility)
+        const artworkId =
+          jobState && jobState.status === 'completed' && jobState.backend_artwork_id
+            ? jobState.backend_artwork_id
+            : id;
+
         const duplicateService = getDuplicateService();
-        const artwork = await duplicateService.getArtworkById(id);
+        const artwork = await duplicateService.getArtworkById(artworkId);
 
         if (!artwork) {
           return reply.status(404).send({
