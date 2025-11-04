@@ -135,10 +135,11 @@ export async function jobsRoute(app: FastifyInstance) {
         }
 
         // If artwork exists in backend, it's completed
-        const baseUrl = config.backend.url;
+        // Use router's base URL for public-facing download links
+        const routerBaseUrl = config.router.baseUrl;
 
         return reply.status(200).send({
-          job_id: artwork._id,
+          job_id: id, // Return the original job_id from the request
           status: 'completed',
           artwork_id: artwork._id,
           title: artwork.title,
@@ -150,11 +151,11 @@ export async function jobsRoute(app: FastifyInstance) {
           uploadedAt: artwork.uploadedAt,
           processing_time_ms: artwork.extra?.processing_time_ms,
           urls: {
-            original: `${baseUrl}/artworks/${artwork._id}?variant=original`,
-            protected: `${baseUrl}/artworks/${artwork._id}?variant=protected`,
-            mask_hi: `${baseUrl}/artworks/${artwork._id}?variant=mask_hi`,
-            mask_lo: `${baseUrl}/artworks/${artwork._id}?variant=mask_lo`,
-            metadata: `${baseUrl}/artworks/${artwork._id}/metadata`,
+            original: `${routerBaseUrl}/jobs/${id}/download/original`,
+            protected: `${routerBaseUrl}/jobs/${id}/download/protected`,
+            mask_hi: `${routerBaseUrl}/jobs/${id}/download/mask_hi`,
+            mask_lo: `${routerBaseUrl}/jobs/${id}/download/mask_lo`,
+            metadata: `${routerBaseUrl}/jobs/${id}/result`,
           },
           formats: artwork.formats,
           analysis: artwork.analysis,
