@@ -27,6 +27,14 @@ export class QueueService {
         host: config.redis.host,
         port: config.redis.port,
         password: config.redis.password,
+        maxRetriesPerRequest: 1, // Fail fast for health checks
+        connectTimeout: 2000, // 2 second timeout
+        retryStrategy: (times: number) => {
+          if (times > 2) {
+            return null; // Stop retrying
+          }
+          return Math.min(times * 100, 500); // Quick retry attempts
+        },
       },
       defaultJobOptions: {
         attempts: 3,

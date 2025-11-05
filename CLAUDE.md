@@ -186,7 +186,7 @@ Get complete job result with backend URLs. Returns 409 if job is still processin
 
 Proxy download from backend. Redirects (307) to backend storage URL.
 
-**Variants:** `original`, `protected`, `mask_hi`, `mask_lo`
+**Variants:** `original`, `protected`, `mask`
 
 ### GET /health
 

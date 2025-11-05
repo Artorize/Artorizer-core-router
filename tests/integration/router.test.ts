@@ -159,8 +159,7 @@ describe('Router API Integration Tests', () => {
       if (data.urls) {
         expect(data.urls).toHaveProperty('original');
         expect(data.urls).toHaveProperty('protected');
-        expect(data.urls).toHaveProperty('mask_hi');
-        expect(data.urls).toHaveProperty('mask_lo');
+        expect(data.urls).toHaveProperty('mask');
       }
 
       expect(data).toHaveProperty('title');
@@ -200,7 +199,7 @@ describe('Router API Integration Tests', () => {
       }
     }, 30000);
 
-    it('should redirect to backend URL for mask_hi variant', async () => {
+    it('should redirect to backend URL for mask variant', async () => {
       if (!artworkId && !createdJobId) {
         console.log('Skipping: No job_id available from previous tests');
         return;
@@ -208,7 +207,7 @@ describe('Router API Integration Tests', () => {
 
       const jobId = artworkId || createdJobId;
 
-      const response = await fetch(`${BASE_URL}/jobs/${jobId}/download/mask_hi`, {
+      const response = await fetch(`${BASE_URL}/jobs/${jobId}/download/mask`, {
         redirect: 'manual',
       });
 
@@ -222,7 +221,7 @@ describe('Router API Integration Tests', () => {
 
       const location = response.headers.get('location');
       if (location) {
-        expect(location).toContain('variant=mask_hi');
+        expect(location).toContain('variant=mask');
       }
     }, 30000);
   });

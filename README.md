@@ -448,7 +448,7 @@ src/
 
 For comprehensive documentation including all endpoints, parameters, examples, and error handling:
 
-📖 **[API Reference](docs/api-reference.md)** - Complete endpoint documentation with examples
+**[API Reference](docs/api-reference.md)** - Complete endpoint documentation with examples
 
 ### Additional Documentation
 

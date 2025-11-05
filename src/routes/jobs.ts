@@ -172,8 +172,7 @@ export async function jobsRoute(app: FastifyInstance) {
           urls: {
             original: `${routerBaseUrl}/jobs/${id}/download/original`,
             protected: `${routerBaseUrl}/jobs/${id}/download/protected`,
-            mask_hi: `${routerBaseUrl}/jobs/${id}/download/mask_hi`,
-            mask_lo: `${routerBaseUrl}/jobs/${id}/download/mask_lo`,
+            mask: `${routerBaseUrl}/jobs/${id}/download/mask`,
             metadata: `${routerBaseUrl}/jobs/${id}/result`,
           },
           formats: artwork.formats,

@@ -8,8 +8,7 @@ export interface ArtworkUploadParams {
   protectedImage: Buffer;
   protectedFilename: string;
   protectedContentType: string;
-  maskHi: Buffer;
-  maskLo: Buffer;
+  mask: Buffer; // Single SAC file containing encoded grayscale mask
   analysis: object;
   summary: object;
   metadata: {
@@ -37,13 +36,7 @@ export interface ArtworkUploadResponse {
       checksum: string;
       fileId: string;
     };
-    mask_hi?: {
-      contentType: string;
-      bytes: number;
-      checksum: string;
-      fileId: string;
-    };
-    mask_lo?: {
+    mask?: {
       contentType: string;
       bytes: number;
       checksum: string;
@@ -72,9 +65,8 @@ export class BackendService {
       formData.append('original', new Blob([params.originalImage], { type: params.originalContentType }), params.originalFilename);
       formData.append('protected', new Blob([params.protectedImage], { type: params.protectedContentType }), params.protectedFilename);
 
-      // Add SAC mask files (both high and low res)
-      formData.append('maskHi', new Blob([params.maskHi], { type: 'application/octet-stream' }), 'mask_hi.sac');
-      formData.append('maskLo', new Blob([params.maskLo], { type: 'application/octet-stream' }), 'mask_lo.sac');
+      // Add SAC mask file (single grayscale mask)
+      formData.append('mask', new Blob([params.mask], { type: 'application/octet-stream' }), 'mask.sac');
 
       // Add JSON files
       const analysisBlob = new Blob([JSON.stringify(params.analysis, null, 2)], { type: 'application/json' });
