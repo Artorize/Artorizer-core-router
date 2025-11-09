@@ -10,6 +10,7 @@ out-tsc/
 .env
 .env.local
 .env.*.local
+.version-info.json
 
 # Logs
 logs/
