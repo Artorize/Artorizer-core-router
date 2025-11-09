@@ -42,6 +42,10 @@ const configSchema = z.object({
   upload: z.object({
     maxFileSize: z.coerce.number().default(256 * 1024 * 1024), // 256MB
   }),
+
+  autoUpdate: z.object({
+    enabled: z.coerce.boolean().default(true),
+  }),
 });
 
 export const config = configSchema.parse({
@@ -78,6 +82,10 @@ export const config = configSchema.parse({
 
   upload: {
     maxFileSize: process.env.MAX_FILE_SIZE,
+  },
+
+  autoUpdate: {
+    enabled: process.env.AUTO_UPDATE_ENABLED,
   },
 });
 

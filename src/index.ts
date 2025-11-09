@@ -3,6 +3,7 @@ import os from 'os';
 import pino from 'pino';
 import { config } from './config';
 import { buildApp, closeApp } from './app';
+import { SelfUpdateService } from './services/self-update.service';
 
 // Create logger for primary process (cluster manager)
 const logger = pino({
@@ -12,6 +13,15 @@ const logger = pino({
   },
   timestamp: pino.stdTimeFunctions.isoTime,
 });
+
+// Handle CLI arguments
+const args = process.argv.slice(2);
+
+if (args.includes('--version') || args.includes('-v')) {
+  const updateService = new SelfUpdateService(logger);
+  updateService.displayVersion();
+  process.exit(0);
+}
 
 async function startWorker() {
   try {
@@ -42,7 +52,17 @@ async function startWorker() {
 async function startCluster() {
   const numWorkers = Math.min(config.workers, os.cpus().length);
 
-  logger.info({ pid: process.pid, workers: numWorkers }, 'Master process starting workers');
+  logger.info({ pid: process.pid, workers: numWorkers }, 'Master process starting');
+
+  // Perform self-update check on startup if enabled
+  if (config.autoUpdate.enabled) {
+    const updateService = new SelfUpdateService(logger);
+    await updateService.updateIfAvailable();
+  } else {
+    logger.info('Auto-update disabled');
+  }
+
+  logger.info({ workers: numWorkers }, 'Starting workers');
 
   // Fork workers
   for (let i = 0; i < numWorkers; i++) {
@@ -77,8 +97,25 @@ async function startCluster() {
 }
 
 // Start the application
-if (cluster.isPrimary && config.workers > 1) {
-  startCluster();
-} else {
-  startWorker();
+async function main() {
+  if (cluster.isPrimary && config.workers > 1) {
+    await startCluster();
+  } else if (cluster.isPrimary) {
+    // Single worker mode - perform update check before starting if enabled
+    if (config.autoUpdate.enabled) {
+      const updateService = new SelfUpdateService(logger);
+      await updateService.updateIfAvailable();
+    } else {
+      logger.info('Auto-update disabled');
+    }
+    await startWorker();
+  } else {
+    // This is a forked worker process
+    await startWorker();
+  }
 }
+
+main().catch((error) => {
+  logger.error({ error }, 'Fatal error during startup');
+  process.exit(1);
+});
