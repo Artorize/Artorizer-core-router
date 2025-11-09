@@ -8,19 +8,28 @@ Artorizer Core Router is a high-performance ingress API for the Artorizer image 
 
 **Architecture Flow:**
 ```
-Client → Router POST /protect → Processor POST /v1/process/artwork
-          ↓                       (includes backend_url in metadata)
-    Check Backend API                    ↓
-    (duplicates)                  Processes image
-                                         ↓
-                              Processor POST /artworks → Backend (GridFS + MongoDB)
-                                         ↓
-                              Processor sends callback with backend artwork_id
-                                         ↓
-                              Router POST /callbacks/process-complete
-                                  (receives artwork_id)
-                                         ↓
-                              Client queries: GET /jobs/{id} (via Backend API)
+Client → Router POST /protect → Check Backend API for duplicates
+          ↓                                   ↓
+    If duplicate found ────────────> Return existing artwork (200)
+          ↓
+    If new artwork:
+          ↓
+    1. Router POST /tokens → Backend (generates one-time auth token)
+          ↓
+    2. Router POST /v1/process/artwork → Processor
+          (includes backend_url + one-time token in metadata)
+          ↓
+    3. Processor processes image
+          ↓
+    4. Processor POST /artworks → Backend (using one-time token)
+          (uploads to GridFS + MongoDB)
+          ↓
+    5. Processor POST /callbacks/process-complete → Router
+          (sends backend artwork_id)
+          ↓
+    6. Router updates job state in Redis (completed/failed)
+          ↓
+    7. Client queries: GET /jobs/{id} (via Router → Backend API)
 ```
 
 ## Common Commands
@@ -34,6 +43,13 @@ npm run dev          # Start with hot reload (tsx watch)
 ```bash
 npm run build        # Compile TypeScript to dist/
 npm start            # Run compiled code (node dist/index.js)
+```
+
+### Testing
+```bash
+npm test             # Run integration tests once
+npm run test:watch   # Run tests in watch mode
+npm run test:ui      # Run tests with UI
 ```
 
 ### Maintenance
@@ -77,11 +93,14 @@ Request → Content-type detection (multipart/JSON)
        → Zod validation
        → Duplicate check (Backend API: checksum → title+artist → tags)
        → If duplicate: return existing artwork (200)
-       → If new: track job in Redis with "processing" status
-       → Submit to processor with backend_url (202 with status: "processing")
-       → Processor processes and uploads directly to backend
-       → Processor sends callback with backend artwork_id
-       → Update job state in Redis with "completed" or "failed" status
+       → If new:
+           → Generate UUID job_id
+           → Generate one-time auth token (Backend POST /tokens)
+           → Track job in Redis with "processing" status
+           → Submit to processor with backend_url + one-time token (202 with status: "processing")
+           → Processor processes and uploads directly to backend (using token)
+           → Processor sends callback with backend artwork_id
+           → Update job state in Redis with "completed" or "failed" status
 ```
 
 ### Circuit Breaker Pattern
@@ -97,19 +116,35 @@ This prevents cascade failures when the processor is down.
 
 All config is in `src/config.ts` using Zod validation. Environment variables:
 
-**Required External Services:**
+**Server Configuration:**
+- `PORT`: Server port (default: `7000`)
+- `HOST`: Server host (default: `127.0.0.1`)
+- `NODE_ENV`: Environment mode - `development`, `production`, or `test` (default: `development`)
+- `WORKERS`: Number of worker processes (default: `4`, or set to `auto` for CPU count)
+
+**External Services:**
 - `BACKEND_URL`: Backend storage API endpoint - handles all database operations (default: `http://localhost:5001`)
+- `BACKEND_TIMEOUT`: HTTP timeout for backend requests (default: `30000` ms)
 - `PROCESSOR_URL`: Processor core API endpoint (default: `http://localhost:8000`)
-- `REDIS_HOST`, `REDIS_PORT`: For Bull queue (future async processing)
+- `PROCESSOR_TIMEOUT`: HTTP timeout for processor requests (default: `30000` ms)
+
+**Redis Configuration:**
+- `REDIS_HOST`: Redis host for Bull queue and job tracking (default: `localhost`)
+- `REDIS_PORT`: Redis port (default: `6379`)
+- `REDIS_PASSWORD`: Redis password (optional)
 
 **Router Configuration:**
-- `ROUTER_BASE_URL`: Router's own base URL for callback (default: `http://localhost:7000`)
-- `CALLBACK_AUTH_TOKEN`: Secret token for validating processor callbacks
+- `ROUTER_BASE_URL`: Router's own base URL for callbacks and public download URLs (default: `http://localhost:7000`)
+- `CALLBACK_AUTH_TOKEN`: Secret token for validating processor callbacks (default: `change-this-to-a-secure-random-token`)
 
-**Performance Tuning:**
-- `WORKERS`: Number of worker processes (default: 4)
-- `PROCESSOR_TIMEOUT`: HTTP timeout for processor requests (default: 30000ms)
-- `MAX_FILE_SIZE`: Upload limit (default: 256MB)
+**Upload Configuration:**
+- `MAX_FILE_SIZE`: Upload limit in bytes (default: `268435456` = 256MB)
+
+**Rate Limiting:**
+- `RATE_LIMIT_MAX`: Maximum requests per window (default: `100`)
+- `RATE_LIMIT_WINDOW`: Time window in milliseconds (default: `60000` = 1 minute)
+
+**Note:** All environment variables have defaults and are technically optional, but you should configure external service URLs and secrets for production use.
 
 See `.env.example` for all available options.
 
@@ -184,9 +219,15 @@ Get complete job result with backend URLs. Returns 409 if job is still processin
 
 ### GET /jobs/{id}/download/{variant}
 
-Proxy download from backend. Redirects (307) to backend storage URL.
+Proxy download from backend. Fetches the file from backend storage and streams it to the client.
 
 **Variants:** `original`, `protected`, `mask`
+
+**Response:**
+- `200 OK`: File streamed with appropriate `content-type` and `content-disposition` headers
+- `404 Not Found`: Job not found or file unavailable
+- `409 Conflict`: Job is still processing
+- `502 Bad Gateway`: Backend download failed
 
 ### GET /health
 
@@ -306,6 +347,33 @@ Returns first match found. The backend handles all database operations, indexing
 
 This allows clients to poll GET /jobs/{id} and receive "processing" status immediately, rather than 404 errors while the job is being processed.
 
+## Token Generation Security
+
+`backend.service.ts` implements secure one-time token generation for processor-to-backend uploads:
+
+**Security Model:**
+- Router generates a one-time authentication token before submitting jobs to processor
+- Token is passed to processor in job metadata
+- Processor uses token to authenticate when uploading results to backend
+- Token expires after 1 hour and can only be used once
+
+**Backend API endpoint:** `POST /tokens`
+
+**Token Properties:**
+- 16-character random string
+- Single-use only (invalidated after first use)
+- 1-hour expiration
+- Associated with job metadata (source: 'router', jobId)
+
+**Flow:**
+1. Router calls `backend.generateToken({ source: 'router', jobId })`
+2. Backend creates token and returns: `{ token, tokenId, expiresAt }`
+3. Router includes token in processor job submission metadata (`backend_auth_token`)
+4. Processor uses token when uploading to backend (`POST /artworks`)
+5. Backend validates and invalidates token after use
+
+This prevents unauthorized uploads to the backend and ensures only the router can initiate processing workflows.
+
 ## Error Handling
 
 Structured error responses:
@@ -380,8 +448,25 @@ src/
 
 ## Testing
 
-No test suite currently exists. When adding tests, consider:
-- Unit tests for validation/normalization logic
-- Integration tests for duplicate detection
-- E2E tests for full request flow
-- Circuit breaker behavior tests
+An integration test suite exists using Vitest (`tests/integration/router.test.ts`).
+
+**Running tests:**
+```bash
+npm test              # Run tests once
+npm run test:watch    # Run in watch mode
+npm run test:ui       # Run with UI
+```
+
+**Test coverage includes:**
+- POST /protect endpoint (upload, duplicate detection, validation)
+- GET /jobs/:id endpoint (job status queries)
+- GET /jobs/:id/result endpoint (complete job results with URLs)
+- GET /jobs/:id/download/:variant endpoint (file downloads via proxy)
+- Full end-to-end workflow (upload → process → download protected image)
+- Health checks and edge cases (404 errors, invalid requests)
+
+**Test configuration:**
+- Tests run against a live router instance (configured via `ROUTER_URL` env var)
+- Default target: `https://router.artorizer.com`
+- Includes comprehensive E2E test that uploads, waits for processing, and downloads protected images
+- Test images stored in `input/` directory, output saved to `output/` directory
