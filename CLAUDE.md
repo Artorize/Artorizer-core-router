@@ -197,12 +197,52 @@ Receives async completion callback from processor after it uploads artwork to ba
 - `401 Unauthorized`: Invalid auth token
 - `400 Bad Request`: Missing backend_artwork_id (processor should upload to backend first)
 
+### POST /callbacks/process-progress
+
+Receives progress updates from processor during processing (step-by-step tracking).
+
+**Authorization:** Validates `Authorization` header against `CALLBACK_AUTH_TOKEN`
+
+**Request body:**
+```json
+{
+  "job_id": "uuid",
+  "current_step": "Extracting image features",
+  "step_number": 2,
+  "total_steps": 5,
+  "percentage": 40,
+  "details": {
+    "optional": "additional context about current step"
+  }
+}
+```
+
+**Processing:**
+1. Validates authorization token
+2. Updates job progress in Redis
+3. Clients can poll GET /jobs/{id} to see current progress
+4. Returns acknowledgment
+
+**Response:**
+- `200 OK`: `{"received": true, "job_id": "...", "message": "Progress update received"}`
+- `401 Unauthorized`: Invalid auth token
+- `400 Bad Request`: Missing required fields (job_id, current_step)
+
+**Usage by Processor:**
+The processor should call this endpoint at the start of each major processing step to provide real-time progress updates to clients. Example steps:
+- Step 1: "Loading and validating image"
+- Step 2: "Extracting image features"
+- Step 3: "Generating perceptual hashes"
+- Step 4: "Applying watermark protection"
+- Step 5: "Uploading results to backend"
+
 ### GET /jobs/{id}
 
 Get job status. Checks Redis first for processing jobs, then falls back to backend for completed jobs.
 
 **Response:**
-- `200 OK` (processing): `{"job_id": "...", "status": "processing", "submitted_at": "...", "message": "Job is currently being processed"}`
+- `200 OK` (processing): `{"job_id": "...", "status": "processing", "submitted_at": "...", "message": "Job is currently being processed", "progress": {"current_step": "...", "step_number": 2, "total_steps": 5, "percentage": 40, "updated_at": "...", "details": {...}}}`
+  - Note: `progress` field is included if the processor has sent progress updates
 - `200 OK` (completed): `{"job_id": "...", "status": "completed", "submitted_at": "...", "completed_at": "...", "backend_artwork_id": "..."}`
 - `200 OK` (failed): `{"job_id": "...", "status": "failed", "submitted_at": "...", "completed_at": "...", "error": {...}}`
 - `404 Not Found`: Job doesn't exist
@@ -215,7 +255,7 @@ Get complete job result with backend URLs. Returns 409 if job is still processin
 - `200 OK`: Full artwork metadata + URLs to backend files (when completed)
 - `200 OK`: Failed job details (when failed)
 - `404 Not Found`: Job doesn't exist
-- `409 Conflict`: Job is still processing
+- `409 Conflict`: Job is still processing (includes `progress` field if available)
 
 ### GET /jobs/{id}/download/{variant}
 
@@ -334,18 +374,28 @@ Returns first match found. The backend handles all database operations, indexing
 - `completed`: Processor finished successfully, artwork uploaded to backend
 - `failed`: Processing encountered an error
 
+**Progress Tracking:**
+Jobs in `processing` state can include real-time progress information:
+- `current_step`: Human-readable description of current processing step
+- `step_number`: Current step number (1-based)
+- `total_steps`: Total number of processing steps
+- `percentage`: Overall progress percentage (0-100)
+- `updated_at`: Timestamp of last progress update
+- `details`: Optional additional context about the current step
+
 **Redis Storage:**
 - Key format: `job:{jobId}`
 - TTL: 1 hour (automatic cleanup)
-- Stored data: job_id, status, submitted_at, completed_at, backend_artwork_id, error
+- Stored data: job_id, status, submitted_at, completed_at, backend_artwork_id, progress, error
 
 **Flow:**
 1. When job submitted via POST /protect → track with "processing" status
-2. When callback received → update with "completed" or "failed" status
-3. When GET /jobs/{id} queried → check Redis first, then fall back to backend
-4. Redis failures are silent - system degrades gracefully to backend-only queries
+2. When progress callback received (POST /callbacks/process-progress) → update progress in real-time
+3. When completion callback received (POST /callbacks/process-complete) → update with "completed" or "failed" status
+4. When GET /jobs/{id} queried → check Redis first (includes progress if available), then fall back to backend
+5. Redis failures are silent - system degrades gracefully to backend-only queries
 
-This allows clients to poll GET /jobs/{id} and receive "processing" status immediately, rather than 404 errors while the job is being processed.
+This allows clients to poll GET /jobs/{id} and receive both "processing" status and detailed progress information (current step, percentage complete, etc.) in real-time, providing a much better user experience than generic "processing" messages.
 
 ## Token Generation Security
 

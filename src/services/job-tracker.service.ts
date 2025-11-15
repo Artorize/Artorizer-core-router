@@ -1,12 +1,22 @@
 import Redis from 'ioredis';
 import { config } from '../config';
 
+export interface JobProgress {
+  current_step: string;
+  step_number: number;
+  total_steps: number;
+  percentage: number;
+  updated_at: string;
+  details?: Record<string, any>;
+}
+
 export interface JobState {
   job_id: string;
   status: 'processing' | 'completed' | 'failed';
   submitted_at: string;
   completed_at?: string;
   backend_artwork_id?: string;
+  progress?: JobProgress;
   error?: {
     code: string;
     message: string;
@@ -71,6 +81,48 @@ export class JobTrackerService {
   }
 
   /**
+   * Update job progress (called by processor during processing)
+   */
+  async updateJobProgress(
+    jobId: string,
+    progress: JobProgress
+  ): Promise<void> {
+    try {
+      const existingState = await this.getJobState(jobId);
+
+      if (!existingState) {
+        // Job doesn't exist in Redis yet - create it
+        const state: JobState = {
+          job_id: jobId,
+          status: 'processing',
+          submitted_at: new Date().toISOString(),
+          progress,
+        };
+
+        await this.redis.setex(
+          `${this.KEY_PREFIX}${jobId}`,
+          this.TTL,
+          JSON.stringify(state)
+        );
+      } else {
+        // Update existing job with new progress
+        const state: JobState = {
+          ...existingState,
+          progress,
+        };
+
+        await this.redis.setex(
+          `${this.KEY_PREFIX}${jobId}`,
+          this.TTL,
+          JSON.stringify(state)
+        );
+      }
+    } catch (error) {
+      // Silent fail - not critical
+    }
+  }
+
+  /**
    * Update job state on completion
    */
   async updateJobCompletion(
@@ -88,6 +140,8 @@ export class JobTrackerService {
         submitted_at: existingState?.submitted_at || new Date().toISOString(),
         completed_at: new Date().toISOString(),
         backend_artwork_id: backendArtworkId,
+        // Preserve progress for completed jobs (useful for debugging)
+        ...(existingState?.progress && { progress: existingState.progress }),
         ...(error && { error }),
       };
 
