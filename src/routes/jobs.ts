@@ -40,6 +40,11 @@ export async function jobsRoute(app: FastifyInstance) {
               message: 'Job is currently being processed',
             };
 
+            // Include processor configuration if available
+            if (jobState.processor_config) {
+              response.processor_config = jobState.processor_config;
+            }
+
             // Include progress information if available
             if (jobState.progress) {
               response.progress = jobState.progress;
@@ -117,6 +122,11 @@ export async function jobsRoute(app: FastifyInstance) {
             submitted_at: jobState.submitted_at,
             statusCode: 409,
           };
+
+          // Include processor configuration if available
+          if (jobState.processor_config) {
+            response.processor_config = jobState.processor_config;
+          }
 
           // Include progress information if available
           if (jobState.progress) {

@@ -229,20 +229,108 @@ Receives progress updates from processor during processing (step-by-step trackin
 - `400 Bad Request`: Missing required fields (job_id, current_step)
 
 **Usage by Processor:**
-The processor should call this endpoint at the start of each major processing step to provide real-time progress updates to clients. Example steps:
-- Step 1: "Loading and validating image"
-- Step 2: "Extracting image features"
-- Step 3: "Generating perceptual hashes"
-- Step 4: "Applying watermark protection"
-- Step 5: "Uploading results to backend"
+The processor should call this endpoint at the start of each major processing step to provide real-time progress updates to clients. The `current_step` should describe which processor or layer is currently executing. Example progress updates:
+
+```json
+// Step 1: Metadata processor
+{
+  "job_id": "uuid",
+  "current_step": "Processing metadata extraction",
+  "step_number": 1,
+  "total_steps": 8,
+  "percentage": 12,
+  "details": {"processor": "metadata", "operation": "extract_exif"}
+}
+
+// Step 2: ImageHash processor
+{
+  "job_id": "uuid",
+  "current_step": "Processing imagehash",
+  "step_number": 2,
+  "total_steps": 8,
+  "percentage": 25,
+  "details": {"processor": "imagehash", "hash_type": "perceptual"}
+}
+
+// Step 3: DHash processor
+{
+  "job_id": "uuid",
+  "current_step": "Processing dhash",
+  "step_number": 3,
+  "total_steps": 8,
+  "percentage": 37,
+  "details": {"processor": "dhash"}
+}
+
+// Step 4: Fawkes protection layer
+{
+  "job_id": "uuid",
+  "current_step": "Applying Fawkes protection",
+  "step_number": 4,
+  "total_steps": 8,
+  "percentage": 50,
+  "details": {"protection_layer": "fawkes"}
+}
+
+// Step 5: Tree-ring watermark
+{
+  "job_id": "uuid",
+  "current_step": "Applying tree-ring watermark",
+  "step_number": 5,
+  "total_steps": 8,
+  "percentage": 62,
+  "details": {"watermark_strategy": "tree-ring", "strength": 0.5}
+}
+
+// Final step: Upload to backend
+{
+  "job_id": "uuid",
+  "current_step": "Uploading results to backend",
+  "step_number": 8,
+  "total_steps": 8,
+  "percentage": 95,
+  "details": {"operation": "upload"}
+}
+```
 
 ### GET /jobs/{id}
 
 Get job status. Checks Redis first for processing jobs, then falls back to backend for completed jobs.
 
 **Response:**
-- `200 OK` (processing): `{"job_id": "...", "status": "processing", "submitted_at": "...", "message": "Job is currently being processed", "progress": {"current_step": "...", "step_number": 2, "total_steps": 5, "percentage": 40, "updated_at": "...", "details": {...}}}`
-  - Note: `progress` field is included if the processor has sent progress updates
+- `200 OK` (processing):
+```json
+{
+  "job_id": "...",
+  "status": "processing",
+  "submitted_at": "...",
+  "message": "Job is currently being processed",
+  "processor_config": {
+    "processors": ["metadata", "imagehash", "dhash"],
+    "watermark_strategy": "tree-ring",
+    "protection_layers": {
+      "fawkes": true,
+      "photoguard": true,
+      "mist": true,
+      "nightshade": true
+    },
+    "total_steps": 8
+  },
+  "progress": {
+    "current_step": "Processing imagehash",
+    "step_number": 2,
+    "total_steps": 8,
+    "percentage": 25,
+    "updated_at": "...",
+    "details": {
+      "processor": "imagehash",
+      "hash_type": "perceptual"
+    }
+  }
+}
+```
+  - `processor_config`: Shows which processors/layers will be executed and expected total_steps
+  - `progress`: Included if the processor has sent progress updates
 - `200 OK` (completed): `{"job_id": "...", "status": "completed", "submitted_at": "...", "completed_at": "...", "backend_artwork_id": "..."}`
 - `200 OK` (failed): `{"job_id": "...", "status": "failed", "submitted_at": "...", "completed_at": "...", "error": {...}}`
 - `404 Not Found`: Job doesn't exist
@@ -255,7 +343,7 @@ Get complete job result with backend URLs. Returns 409 if job is still processin
 - `200 OK`: Full artwork metadata + URLs to backend files (when completed)
 - `200 OK`: Failed job details (when failed)
 - `404 Not Found`: Job doesn't exist
-- `409 Conflict`: Job is still processing (includes `progress` field if available)
+- `409 Conflict`: Job is still processing (includes `processor_config` and `progress` fields if available)
 
 ### GET /jobs/{id}/download/{variant}
 
@@ -374,28 +462,37 @@ Returns first match found. The backend handles all database operations, indexing
 - `completed`: Processor finished successfully, artwork uploaded to backend
 - `failed`: Processing encountered an error
 
+**Processor Configuration Tracking:**
+Jobs store the processor configuration from the initial request, including:
+- `processors`: Array of processor names to execute (e.g., `['metadata', 'imagehash', 'dhash']`)
+- `watermark_strategy`: Watermark strategy to apply (e.g., `'tree-ring'`, `'invisible-watermark'`, `'none'`)
+- `protection_layers`: Which protection layers are enabled (fawkes, photoguard, mist, nightshade, stegano_embed, c2pa_manifest)
+- `total_steps`: Automatically calculated based on enabled processors and layers
+
+This allows clients to see exactly what processing will be performed and track progress against expected steps.
+
 **Progress Tracking:**
 Jobs in `processing` state can include real-time progress information:
-- `current_step`: Human-readable description of current processing step
+- `current_step`: Human-readable description of current processing step (e.g., "Processing imagehash")
 - `step_number`: Current step number (1-based)
-- `total_steps`: Total number of processing steps
+- `total_steps`: Total number of processing steps (matches processor_config.total_steps)
 - `percentage`: Overall progress percentage (0-100)
 - `updated_at`: Timestamp of last progress update
-- `details`: Optional additional context about the current step
+- `details`: Optional additional context about the current step (e.g., `{"processor": "imagehash", "hash_type": "perceptual"}`)
 
 **Redis Storage:**
 - Key format: `job:{jobId}`
 - TTL: 1 hour (automatic cleanup)
-- Stored data: job_id, status, submitted_at, completed_at, backend_artwork_id, progress, error
+- Stored data: job_id, status, submitted_at, completed_at, backend_artwork_id, processor_config, progress, error
 
 **Flow:**
-1. When job submitted via POST /protect → track with "processing" status
+1. When job submitted via POST /protect → track with "processing" status + processor configuration
 2. When progress callback received (POST /callbacks/process-progress) → update progress in real-time
 3. When completion callback received (POST /callbacks/process-complete) → update with "completed" or "failed" status
-4. When GET /jobs/{id} queried → check Redis first (includes progress if available), then fall back to backend
+4. When GET /jobs/{id} queried → check Redis first (includes processor_config and progress), then fall back to backend
 5. Redis failures are silent - system degrades gracefully to backend-only queries
 
-This allows clients to poll GET /jobs/{id} and receive both "processing" status and detailed progress information (current step, percentage complete, etc.) in real-time, providing a much better user experience than generic "processing" messages.
+This allows clients to poll GET /jobs/{id} and receive both "processing" status with detailed processor configuration and real-time progress information (which specific processor/layer is running, current step, percentage complete, etc.), providing a much better user experience than generic "processing" messages.
 
 ## Token Generation Security
 
