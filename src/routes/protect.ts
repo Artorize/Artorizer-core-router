@@ -178,9 +178,20 @@ export async function protectRoute(app: FastifyInstance) {
         'Generated one-time backend auth token for processor upload'
       );
 
-      // Track job submission in Redis
+      // Track job submission in Redis with processor configuration
       const jobTracker = getJobTrackerService();
-      await jobTracker.trackJobSubmission(jobId);
+      await jobTracker.trackJobSubmission(jobId, {
+        processors: validatedPayload.processors as string[] | undefined,
+        watermark_strategy: validatedPayload.watermark_strategy,
+        protection_layers: {
+          fawkes: validatedPayload.enable_fawkes,
+          photoguard: validatedPayload.enable_photoguard,
+          mist: validatedPayload.enable_mist,
+          nightshade: validatedPayload.enable_nightshade,
+          stegano_embed: validatedPayload.enable_stegano_embed,
+          c2pa_manifest: validatedPayload.enable_c2pa_manifest,
+        },
+      });
 
       // Submit to processor with callback and backend auth token
       const processorService = getProcessorService();

@@ -33,12 +33,24 @@ export async function jobsRoute(app: FastifyInstance) {
         if (jobState) {
           // Job is tracked in Redis
           if (jobState.status === 'processing') {
-            return reply.status(200).send({
+            const response: any = {
               job_id: jobState.job_id,
               status: 'processing',
               submitted_at: jobState.submitted_at,
               message: 'Job is currently being processed',
-            });
+            };
+
+            // Include processor configuration if available
+            if (jobState.processor_config) {
+              response.processor_config = jobState.processor_config;
+            }
+
+            // Include progress information if available
+            if (jobState.progress) {
+              response.progress = jobState.progress;
+            }
+
+            return reply.status(200).send(response);
           } else if (jobState.status === 'failed') {
             return reply.status(200).send({
               job_id: jobState.job_id,
@@ -103,13 +115,25 @@ export async function jobsRoute(app: FastifyInstance) {
         const jobState = await jobTracker.getJobState(id);
 
         if (jobState && jobState.status === 'processing') {
-          return reply.status(409).send({
+          const response: any = {
             error: 'Job is still processing',
             job_id: jobState.job_id,
             status: 'processing',
             submitted_at: jobState.submitted_at,
             statusCode: 409,
-          });
+          };
+
+          // Include processor configuration if available
+          if (jobState.processor_config) {
+            response.processor_config = jobState.processor_config;
+          }
+
+          // Include progress information if available
+          if (jobState.progress) {
+            response.progress = jobState.progress;
+          }
+
+          return reply.status(409).send(response);
         }
 
         if (jobState && jobState.status === 'failed') {

@@ -31,6 +31,15 @@ interface CallbackPayload {
   };
 }
 
+interface ProgressCallbackPayload {
+  job_id: string;
+  current_step: string;
+  step_number: number;
+  total_steps: number;
+  percentage: number;
+  details?: Record<string, any>;
+}
+
 export async function callbackRoute(app: FastifyInstance) {
   /**
    * POST /callbacks/process-complete
@@ -122,6 +131,71 @@ export async function callbackRoute(app: FastifyInstance) {
 
         return reply.status(500).send({
           error: 'Failed to process callback',
+          detail: error.message,
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /callbacks/process-progress
+   * Receives progress updates from processor during processing
+   */
+  app.post(
+    '/callbacks/process-progress',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Validate authorization header
+        const authHeader = request.headers.authorization;
+        const expectedToken = config.router.callbackAuthToken;
+
+        if (!authHeader || authHeader !== expectedToken) {
+          request.log.warn({ authHeader }, 'Unauthorized progress callback attempt');
+          return reply.status(401).send({ error: 'Unauthorized' });
+        }
+
+        const payload = request.body as ProgressCallbackPayload;
+
+        if (!payload.job_id) {
+          return reply.status(400).send({ error: 'Missing job_id in progress payload' });
+        }
+
+        if (!payload.current_step) {
+          return reply.status(400).send({ error: 'Missing current_step in progress payload' });
+        }
+
+        request.log.info(
+          {
+            job_id: payload.job_id,
+            current_step: payload.current_step,
+            step_number: payload.step_number,
+            total_steps: payload.total_steps,
+            percentage: payload.percentage
+          },
+          'Received processor progress update'
+        );
+
+        // Update job progress in Redis
+        const jobTracker = getJobTrackerService();
+        await jobTracker.updateJobProgress(payload.job_id, {
+          current_step: payload.current_step,
+          step_number: payload.step_number,
+          total_steps: payload.total_steps,
+          percentage: payload.percentage,
+          updated_at: new Date().toISOString(),
+          details: payload.details,
+        });
+
+        return reply.status(200).send({
+          received: true,
+          job_id: payload.job_id,
+          message: 'Progress update received',
+        });
+      } catch (error: any) {
+        request.log.error(error, 'Error processing progress callback');
+
+        return reply.status(500).send({
+          error: 'Failed to process progress callback',
           detail: error.message,
         });
       }
