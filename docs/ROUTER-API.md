@@ -11,6 +11,8 @@ Complete API reference for the Artorizer Core Router.
 1. [Artwork Submission](#artwork-submission)
 2. [Job Status](#job-status)
 3. [Callback Endpoints](#callback-endpoints)
+   - [Process Complete Callback](#post-callbacksprocess-complete)
+   - [Process Progress Callback](#post-callbacksprocess-progress)
 4. [Health Checks](#health-checks)
 5. [Error Codes](#error-codes)
 
@@ -172,9 +174,47 @@ curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609
   "job_id": "f2dc197c-43b9-404d-b3f3-159282802609",
   "status": "processing",
   "submitted_at": "2024-01-01T12:00:00Z",
-  "message": "Job is currently being processed"
+  "message": "Job is currently being processed",
+  "processor_config": {
+    "processors": ["metadata", "imagehash", "dhash"],
+    "watermark_strategy": "tree-ring",
+    "protection_layers": {
+      "fawkes": true,
+      "photoguard": true,
+      "mist": true,
+      "nightshade": true,
+      "stegano_embed": false,
+      "c2pa_manifest": true
+    },
+    "total_steps": 8
+  },
+  "progress": {
+    "current_step": "Processing imagehash",
+    "step_number": 2,
+    "total_steps": 8,
+    "percentage": 25,
+    "updated_at": "2024-01-01T12:00:15Z",
+    "details": {
+      "processor": "imagehash",
+      "hash_type": "perceptual"
+    }
+  }
 }
 ```
+
+**Processor Configuration Fields:**
+- `processors`: Array of processor names that will execute (e.g., metadata, imagehash, dhash, blockhash, stegano, tineye)
+- `watermark_strategy`: The watermark strategy to apply (tree-ring, invisible-watermark, or none)
+- `protection_layers`: Object showing which protection layers are enabled
+- `total_steps`: Automatically calculated based on enabled processors and layers
+
+**Progress Fields** (included if processor has sent progress updates):
+- `current_step`: Human-readable description of current processing step
+- `step_number`: Current step number (1-based)
+- `total_steps`: Total number of processing steps (matches processor_config.total_steps)
+- `percentage`: Overall progress percentage (0-100)
+- `updated_at`: Timestamp of last progress update
+- `details`: Optional additional context about the current step
 
 #### Response: Completed (200 OK)
 
@@ -276,9 +316,32 @@ curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609/result
 ```json
 {
   "error": "Job is still processing",
-  "statusCode": 409
+  "statusCode": 409,
+  "processor_config": {
+    "processors": ["metadata", "imagehash", "dhash"],
+    "watermark_strategy": "tree-ring",
+    "protection_layers": {
+      "fawkes": true,
+      "photoguard": true,
+      "mist": true,
+      "nightshade": true
+    },
+    "total_steps": 8
+  },
+  "progress": {
+    "current_step": "Applying Fawkes protection",
+    "step_number": 5,
+    "total_steps": 8,
+    "percentage": 62,
+    "updated_at": "2024-01-01T12:00:45Z",
+    "details": {
+      "protection_layer": "fawkes"
+    }
+  }
 }
 ```
+
+The processor_config and progress fields allow clients to display real-time processing status even when the job is not yet complete.
 
 ---
 
@@ -417,6 +480,151 @@ Content-Type: application/json
 ```json
 {
   "error": "Missing backend_artwork_id in callback payload",
+  "statusCode": 400
+}
+```
+
+---
+
+### POST /callbacks/process-progress
+
+Receives progress updates from processor during processing (step-by-step tracking).
+
+**Authorization**: Validates `Authorization` header against `CALLBACK_AUTH_TOKEN`
+
+#### Request Headers
+
+```
+Authorization: Bearer your-callback-auth-token
+Content-Type: application/json
+```
+
+#### Request Body
+
+```json
+{
+  "job_id": "f2dc197c-43b9-404d-b3f3-159282802609",
+  "current_step": "Processing imagehash",
+  "step_number": 2,
+  "total_steps": 8,
+  "percentage": 25,
+  "details": {
+    "processor": "imagehash",
+    "hash_type": "perceptual"
+  }
+}
+```
+
+**Required Fields:**
+- `job_id`: The job identifier
+- `current_step`: Human-readable description of current processing step
+
+**Optional Fields:**
+- `step_number`: Current step number (1-based)
+- `total_steps`: Total number of processing steps
+- `percentage`: Overall progress percentage (0-100)
+- `details`: Additional context about the current step
+
+#### Processing
+
+1. Validates authorization token
+2. Updates job progress in Redis
+3. Clients can poll GET /jobs/{id} to see current progress
+4. Returns acknowledgment
+
+#### Example Progress Updates
+
+The processor should call this endpoint at the start of each major processing step:
+
+```json
+// Step 1: Metadata processor
+{
+  "job_id": "f2dc197c-43b9-404d-b3f3-159282802609",
+  "current_step": "Processing metadata extraction",
+  "step_number": 1,
+  "total_steps": 8,
+  "percentage": 12,
+  "details": {
+    "processor": "metadata",
+    "operation": "extract_exif"
+  }
+}
+
+// Step 2: ImageHash processor
+{
+  "job_id": "f2dc197c-43b9-404d-b3f3-159282802609",
+  "current_step": "Processing imagehash",
+  "step_number": 2,
+  "total_steps": 8,
+  "percentage": 25,
+  "details": {
+    "processor": "imagehash",
+    "hash_type": "perceptual"
+  }
+}
+
+// Step 4: Fawkes protection layer
+{
+  "job_id": "f2dc197c-43b9-404d-b3f3-159282802609",
+  "current_step": "Applying Fawkes protection",
+  "step_number": 4,
+  "total_steps": 8,
+  "percentage": 50,
+  "details": {
+    "protection_layer": "fawkes"
+  }
+}
+
+// Step 5: Tree-ring watermark
+{
+  "job_id": "f2dc197c-43b9-404d-b3f3-159282802609",
+  "current_step": "Applying tree-ring watermark",
+  "step_number": 5,
+  "total_steps": 8,
+  "percentage": 62,
+  "details": {
+    "watermark_strategy": "tree-ring",
+    "strength": 0.5
+  }
+}
+
+// Final step: Upload to backend
+{
+  "job_id": "f2dc197c-43b9-404d-b3f3-159282802609",
+  "current_step": "Uploading results to backend",
+  "step_number": 8,
+  "total_steps": 8,
+  "percentage": 95,
+  "details": {
+    "operation": "upload"
+  }
+}
+```
+
+#### Response: Success (200 OK)
+
+```json
+{
+  "received": true,
+  "job_id": "f2dc197c-43b9-404d-b3f3-159282802609",
+  "message": "Progress update received"
+}
+```
+
+#### Error Responses
+
+**401 Unauthorized** - Invalid auth token:
+```json
+{
+  "error": "Unauthorized",
+  "statusCode": 401
+}
+```
+
+**400 Bad Request** - Missing required fields:
+```json
+{
+  "error": "Missing required field: current_step",
   "statusCode": 400
 }
 ```
