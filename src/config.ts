@@ -46,6 +46,29 @@ const configSchema = z.object({
   autoUpdate: z.object({
     enabled: z.coerce.boolean().default(true),
   }),
+
+  database: z.object({
+    host: z.string().default('localhost'),
+    port: z.coerce.number().default(5432),
+    user: z.string().default('artorizer'),
+    password: z.string().optional(),
+    name: z.string().default('artorizer_db'),
+  }),
+
+  auth: z.object({
+    enabled: z.coerce.boolean().default(false),
+    secret: z.string().optional(),
+    baseUrl: z.string().optional(),
+    allowedOrigins: z.string().default('http://localhost:8080'),
+    google: z.object({
+      clientId: z.string().optional(),
+      clientSecret: z.string().optional(),
+    }),
+    github: z.object({
+      clientId: z.string().optional(),
+      clientSecret: z.string().optional(),
+    }),
+  }),
 });
 
 export const config = configSchema.parse({
@@ -86,6 +109,29 @@ export const config = configSchema.parse({
 
   autoUpdate: {
     enabled: process.env.AUTO_UPDATE_ENABLED,
+  },
+
+  database: {
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    name: process.env.DB_NAME,
+  },
+
+  auth: {
+    enabled: process.env.AUTH_ENABLED,
+    secret: process.env.BETTER_AUTH_SECRET,
+    baseUrl: process.env.BETTER_AUTH_URL,
+    allowedOrigins: process.env.ALLOWED_ORIGINS,
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    },
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    },
   },
 });
 
