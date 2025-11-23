@@ -1,6 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getDuplicateService } from '../services/duplicate.service';
 import { getJobTrackerService } from '../services/job-tracker.service';
+import { optionalAuth } from '../middleware/auth.middleware';
+import type { UserHeaders } from '../services/backend.service';
 import { config } from '../config';
 
 interface JobParams {
@@ -22,9 +24,19 @@ export async function jobsRoute(app: FastifyInstance) {
    */
   app.get<{ Params: JobParams }>(
     '/jobs/:id',
+    {
+      preHandler: optionalAuth,
+    },
     async (request: FastifyRequest<{ Params: JobParams }>, reply: FastifyReply) => {
       try {
         const { id } = request.params;
+
+        // Extract user information from authenticated session
+        const userHeaders: UserHeaders | undefined = request.user ? {
+          'X-User-Id': request.user.id,
+          'X-User-Email': request.user.email,
+          'X-User-Name': request.user.name,
+        } : undefined;
 
         // First check Redis for job state (handles processing jobs)
         const jobTracker = getJobTrackerService();
@@ -74,7 +86,7 @@ export async function jobsRoute(app: FastifyInstance) {
 
         // If not in Redis, check backend (for older jobs or if Redis is down)
         const duplicateService = getDuplicateService();
-        const job = await duplicateService.getJobStatus(id);
+        const job = await duplicateService.getJobStatus(id, userHeaders);
 
         if (!job) {
           return reply.status(404).send({
@@ -106,9 +118,19 @@ export async function jobsRoute(app: FastifyInstance) {
    */
   app.get<{ Params: JobParams }>(
     '/jobs/:id/result',
+    {
+      preHandler: optionalAuth,
+    },
     async (request: FastifyRequest<{ Params: JobParams }>, reply: FastifyReply) => {
       try {
         const { id } = request.params;
+
+        // Extract user information from authenticated session
+        const userHeaders: UserHeaders | undefined = request.user ? {
+          'X-User-Id': request.user.id,
+          'X-User-Email': request.user.email,
+          'X-User-Name': request.user.name,
+        } : undefined;
 
         // First check Redis for job state
         const jobTracker = getJobTrackerService();
@@ -156,7 +178,7 @@ export async function jobsRoute(app: FastifyInstance) {
         request.log.info({ job_id: id, artwork_id: artworkId, jobState }, 'Fetching artwork from backend');
 
         const duplicateService = getDuplicateService();
-        const artwork = await duplicateService.getArtworkById(artworkId);
+        const artwork = await duplicateService.getArtworkById(artworkId, userHeaders);
 
         if (!artwork) {
           return reply.status(404).send({
@@ -220,9 +242,19 @@ export async function jobsRoute(app: FastifyInstance) {
    */
   app.get<{ Params: JobParams & { variant: string } }>(
     '/jobs/:id/download/:variant',
+    {
+      preHandler: optionalAuth,
+    },
     async (request: FastifyRequest<{ Params: JobParams & { variant: string } }>, reply: FastifyReply) => {
       try {
         const { id, variant } = request.params;
+
+        // Extract user information from authenticated session
+        const userHeaders: UserHeaders | undefined = request.user ? {
+          'X-User-Id': request.user.id,
+          'X-User-Email': request.user.email,
+          'X-User-Name': request.user.name,
+        } : undefined;
 
         // First check Redis for job state to get backend_artwork_id
         const jobTracker = getJobTrackerService();
@@ -254,7 +286,7 @@ export async function jobsRoute(app: FastifyInstance) {
             : id;
 
         const duplicateService = getDuplicateService();
-        const artwork = await duplicateService.getArtworkById(artworkId);
+        const artwork = await duplicateService.getArtworkById(artworkId, userHeaders);
 
         if (!artwork) {
           return reply.status(404).send({

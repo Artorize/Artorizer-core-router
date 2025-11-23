@@ -45,6 +45,12 @@ export interface ArtworkUploadResponse {
   };
 }
 
+export interface UserHeaders {
+  'X-User-Id'?: string;
+  'X-User-Email'?: string;
+  'X-User-Name'?: string;
+}
+
 export class BackendService {
   private baseUrl: string;
   private timeout: number;
@@ -52,6 +58,21 @@ export class BackendService {
   constructor() {
     this.baseUrl = config.backend.url;
     this.timeout = config.backend.timeout;
+  }
+
+  /**
+   * Merge user headers with request headers
+   */
+  private buildHeaders(baseHeaders?: Record<string, string>, userHeaders?: UserHeaders): Record<string, string> {
+    const headers: Record<string, string> = { ...baseHeaders };
+
+    if (userHeaders) {
+      if (userHeaders['X-User-Id']) headers['X-User-Id'] = userHeaders['X-User-Id'];
+      if (userHeaders['X-User-Email']) headers['X-User-Email'] = userHeaders['X-User-Email'];
+      if (userHeaders['X-User-Name']) headers['X-User-Name'] = userHeaders['X-User-Name'];
+    }
+
+    return headers;
   }
 
   /**
@@ -117,13 +138,15 @@ export class BackendService {
    * Generate a one-time authentication token for processor upload
    * Returns a 16-character token that can be used once within 1 hour
    */
-  async generateToken(metadata?: { source?: string; jobId?: string }): Promise<{ token: string; tokenId: string; expiresAt: string }> {
+  async generateToken(metadata?: { source?: string; jobId?: string }, userHeaders?: UserHeaders): Promise<{ token: string; tokenId: string; expiresAt: string }> {
     try {
       const body = metadata ? JSON.stringify({ metadata }) : undefined;
+      const baseHeaders = body ? { 'Content-Type': 'application/json' } : undefined;
+      const headers = this.buildHeaders(baseHeaders, userHeaders);
 
       const response = await request(`${this.baseUrl}/tokens`, {
         method: 'POST',
-        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
         body,
         bodyTimeout: this.timeout,
         headersTimeout: this.timeout,
@@ -163,7 +186,7 @@ export class BackendService {
   /**
    * Check if artwork exists in backend
    */
-  async checkExists(params: { checksum?: string; title?: string; artist?: string }): Promise<any> {
+  async checkExists(params: { checksum?: string; title?: string; artist?: string }, userHeaders?: UserHeaders): Promise<any> {
     try {
       const queryParams = new URLSearchParams();
 
@@ -176,8 +199,11 @@ export class BackendService {
         return { exists: false, matches: [] };
       }
 
+      const headers = this.buildHeaders(undefined, userHeaders);
+
       const response = await request(`${this.baseUrl}/artworks/check-exists?${queryParams.toString()}`, {
         method: 'GET',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
         headersTimeout: 5000,
       });
 

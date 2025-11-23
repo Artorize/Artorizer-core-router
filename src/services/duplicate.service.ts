@@ -1,6 +1,7 @@
 import { request } from 'undici';
 import pino from 'pino';
 import { config } from '../config';
+import type { UserHeaders } from './backend.service';
 
 // Create logger for duplicate service
 const logger = pino({
@@ -22,6 +23,21 @@ export class DuplicateDetectionService {
   constructor() {
     this.baseUrl = config.backend.url;
     this.timeout = config.backend.timeout;
+  }
+
+  /**
+   * Merge user headers with request headers
+   */
+  private buildHeaders(baseHeaders?: Record<string, string>, userHeaders?: UserHeaders): Record<string, string> {
+    const headers: Record<string, string> = { ...baseHeaders };
+
+    if (userHeaders) {
+      if (userHeaders['X-User-Id']) headers['X-User-Id'] = userHeaders['X-User-Id'];
+      if (userHeaders['X-User-Email']) headers['X-User-Email'] = userHeaders['X-User-Email'];
+      if (userHeaders['X-User-Name']) headers['X-User-Name'] = userHeaders['X-User-Name'];
+    }
+
+    return headers;
   }
 
   private normalizeArtwork<T extends Record<string, any>>(artwork: T | null | undefined): T | null | undefined {
@@ -58,7 +74,7 @@ export class DuplicateDetectionService {
     title?: string;
     artist?: string;
     tags?: string[];
-  }): Promise<{ exists: boolean; artwork?: any }> {
+  }, userHeaders?: UserHeaders): Promise<{ exists: boolean; artwork?: any }> {
     try {
       const queryParams = new URLSearchParams();
 
@@ -74,10 +90,13 @@ export class DuplicateDetectionService {
         return { exists: false };
       }
 
+      const headers = this.buildHeaders(undefined, userHeaders);
+
       const response = await request(
         `${this.baseUrl}/artworks/check-exists?${queryParams.toString()}`,
         {
           method: 'GET',
+          headers: Object.keys(headers).length > 0 ? headers : undefined,
           headersTimeout: this.timeout,
         }
       );
@@ -108,13 +127,16 @@ export class DuplicateDetectionService {
    * Get artwork by ID
    * Uses Backend API: GET /artworks/{id}/metadata
    */
-  async getArtworkById(id: string): Promise<any | null> {
+  async getArtworkById(id: string, userHeaders?: UserHeaders): Promise<any | null> {
     try {
       const url = `${this.baseUrl}/artworks/${id}/metadata`;
       logger.info({ artwork_id: id, url }, 'Querying backend for artwork');
 
+      const headers = this.buildHeaders(undefined, userHeaders);
+
       const response = await request(url, {
         method: 'GET',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
         headersTimeout: this.timeout,
       });
 
@@ -145,10 +167,13 @@ export class DuplicateDetectionService {
    * Get job status
    * Uses Backend API: GET /artworks/{id}/metadata (partial projection)
    */
-  async getJobStatus(jobId: string): Promise<any | null> {
+  async getJobStatus(jobId: string, userHeaders?: UserHeaders): Promise<any | null> {
     try {
+      const headers = this.buildHeaders(undefined, userHeaders);
+
       const response = await request(`${this.baseUrl}/artworks/${jobId}/metadata`, {
         method: 'GET',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
         headersTimeout: this.timeout,
       });
 
