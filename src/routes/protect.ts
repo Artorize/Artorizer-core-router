@@ -10,8 +10,9 @@ import {
 } from '../utils/normalize';
 import { getDuplicateService } from '../services/duplicate.service';
 import { getProcessorService } from '../services/processor.service';
-import { getBackendService } from '../services/backend.service';
+import { getBackendService, UserHeaders } from '../services/backend.service';
 import { getJobTrackerService } from '../services/job-tracker.service';
+import { optionalAuth } from '../middleware/auth.middleware';
 import { config } from '../config';
 
 interface MultipartBody {
@@ -26,7 +27,16 @@ interface MultipartBody {
 }
 
 export async function protectRoute(app: FastifyInstance) {
-  app.post('/protect', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/protect', {
+    preHandler: optionalAuth,
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    // Extract user information from authenticated session
+    const userHeaders: UserHeaders | undefined = request.user ? {
+      'X-User-Id': request.user.id,
+      'X-User-Email': request.user.email,
+      'X-User-Name': request.user.name,
+    } : undefined;
+
     const isMultipart = request.headers['content-type']?.includes('multipart/form-data');
     const isJSON = request.headers['content-type']?.includes('application/json');
 
@@ -143,7 +153,7 @@ export async function protectRoute(app: FastifyInstance) {
         title: validatedPayload.artwork_title,
         artist: validatedPayload.artist_name,
         tags: validatedPayload.tags as string[] | undefined,
-      });
+      }, userHeaders);
 
       if (duplicateCheck.exists) {
         request.log.info({ artwork: duplicateCheck.artwork }, 'Duplicate artwork detected');
@@ -167,7 +177,7 @@ export async function protectRoute(app: FastifyInstance) {
       const tokenData = await backendService.generateToken({
         source: 'router',
         jobId: jobId,
-      });
+      }, userHeaders);
 
       request.log.info(
         {
