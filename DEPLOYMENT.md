@@ -33,6 +33,7 @@ The `deploy.sh` script automates the entire deployment process:
 - Installs Redis for queue management
 - Installs Nginx as reverse proxy
 - Configures UFW firewall
+- **Note:** PostgreSQL is **NOT** installed by default (only needed if `AUTH_ENABLED=true`). See post-deployment step 1a for manual PostgreSQL setup.
 
 ### 2. Application Setup
 - Creates dedicated `artorizer` user for security
@@ -76,6 +77,40 @@ ROUTER_BASE_URL=http://your-domain.com
 CALLBACK_AUTH_TOKEN=your-secure-random-token-here
 ```
 
+**Optional - Authentication (Better Auth with OAuth):**
+
+If you want to enable user authentication:
+
+```env
+# Enable authentication
+AUTH_ENABLED=true
+
+# Generate a secure secret (required if AUTH_ENABLED=true)
+BETTER_AUTH_SECRET=$(openssl rand -base64 32)
+
+# Set your router's public URL (required if AUTH_ENABLED=true)
+BETTER_AUTH_URL=https://your-domain.com
+
+# Configure allowed frontend origins
+ALLOWED_ORIGINS=https://your-frontend-domain.com,http://localhost:8080
+
+# PostgreSQL configuration (required if AUTH_ENABLED=true)
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=artorizer
+DB_PASSWORD=your-secure-db-password
+DB_NAME=artorizer_db
+
+# OAuth providers (optional - configure at least one)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
+```
+
+**Note:** Authentication is **disabled by default** (`AUTH_ENABLED=false`). Only enable it if you need user management and have PostgreSQL configured. See step 1a below for PostgreSQL setup.
+
 **Optional tuning:**
 ```env
 # Worker processes (default: 4, max: CPU cores)
@@ -91,6 +126,50 @@ PROCESSOR_TIMEOUT=30000
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 ```
+
+### 1a. PostgreSQL Setup (Only if AUTH_ENABLED=true)
+
+If you enabled authentication, install and configure PostgreSQL:
+
+**Install PostgreSQL:**
+```bash
+sudo apt-get update
+sudo apt-get install -y postgresql postgresql-contrib
+```
+
+**Create database and user:**
+```bash
+# Switch to postgres user
+sudo -u postgres psql
+
+# In psql prompt:
+CREATE DATABASE artorizer_db;
+CREATE USER artorizer WITH ENCRYPTED PASSWORD 'your-secure-db-password';
+GRANT ALL PRIVILEGES ON DATABASE artorizer_db TO artorizer;
+\q
+```
+
+**Run Better Auth migrations:**
+```bash
+cd /opt/artorizer-router
+sudo -u artorizer npx better-auth migrate
+```
+
+This creates the necessary tables: `users`, `accounts`, `sessions`.
+
+**Configure OAuth providers (at least one required):**
+
+For **Google OAuth**:
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project and enable OAuth
+3. Add authorized redirect URI: `https://your-domain.com/api/auth/callback/google`
+4. Copy Client ID and Secret to `.env`
+
+For **GitHub OAuth**:
+1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
+2. Create a new OAuth App
+3. Set callback URL: `https://your-domain.com/api/auth/callback/github`
+4. Copy Client ID and generate Client Secret, add to `.env`
 
 ### 2. Configure Domain and SSL
 

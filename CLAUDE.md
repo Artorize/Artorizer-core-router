@@ -8,28 +8,51 @@ Artorizer Core Router is a high-performance ingress API for the Artorizer image 
 
 **Architecture Flow:**
 ```
-Client → Router POST /protect → Check Backend API for duplicates
+Client → Router POST /protect (optional: with auth cookie)
+          ↓
+    Router extracts user info (if authenticated)
+          ↓
+    Router POST /artworks/check-exists → Backend (with user headers: X-User-Id, X-User-Email, X-User-Name)
           ↓                                   ↓
     If duplicate found ────────────> Return existing artwork (200)
           ↓
     If new artwork:
           ↓
-    1. Router POST /tokens → Backend (generates one-time auth token)
+    1. Router POST /tokens → Backend (generates one-time auth token, with user headers)
           ↓
     2. Router POST /v1/process/artwork → Processor
-          (includes backend_url + one-time token in metadata)
+          (includes backend_url + one-time token + user_id in metadata)
           ↓
     3. Processor processes image
           ↓
     4. Processor POST /artworks → Backend (using one-time token)
-          (uploads to GridFS + MongoDB)
+          (uploads to GridFS + MongoDB, associates with user_id)
           ↓
     5. Processor POST /callbacks/process-complete → Router
           (sends backend artwork_id)
           ↓
     6. Router updates job state in Redis (completed/failed)
           ↓
-    7. Client queries: GET /jobs/{id} (via Router → Backend API)
+    7. Client queries: GET /jobs/{id} (via Router → Backend API, with user headers)
+```
+
+**User Authentication Flow (Optional - Better Auth):**
+```
+Client → GET /api/auth/signin/google (or /github)
+          ↓
+    OAuth Provider (Google/GitHub)
+          ↓
+    GET /api/auth/callback/google
+          ↓
+    Better Auth creates session → Sets httpOnly cookie (better-auth.session_token)
+          ↓
+    Client makes requests with session cookie
+          ↓
+    Router middleware (optionalAuth) extracts user info
+          ↓
+    User headers forwarded to Backend (X-User-Id, X-User-Email, X-User-Name)
+          ↓
+    Backend associates operations with authenticated user
 ```
 
 ## Common Commands
@@ -71,17 +94,18 @@ The clustering is implemented in `src/index.ts`. When `WORKERS > 1`, the primary
 ### Request Flow
 
 1. **Entry** (`src/index.ts`): Cluster orchestration, worker management
-2. **Application** (`src/app.ts`): Fastify setup, middleware, CORS, multipart handling
-3. **Routing** (`src/routes/protect.ts`): Main `/protect` endpoint logic
-4. **Validation** (`src/types/schemas.ts`): Zod schemas for type-safe validation
-5. **Services**:
+2. **Application** (`src/app.ts`): Fastify setup, middleware, CORS, multipart handling, Better Auth integration
+3. **Authentication** (`src/auth.ts`, `src/middleware/auth.middleware.ts`): Better Auth setup, session management, user extraction
+4. **Routing** (`src/routes/protect.ts`): Main `/protect` endpoint logic with optional auth
+5. **Validation** (`src/types/schemas.ts`): Zod schemas for type-safe validation
+6. **Services**:
    - `job-tracker.service.ts`: Redis-based job state tracking (processing/completed/failed status)
-   - `duplicate.service.ts`: Backend API client for duplicate detection + artwork queries
+   - `duplicate.service.ts`: Backend API client for duplicate detection + artwork queries (with user header forwarding)
    - `processor.service.ts`: HTTP client with circuit breaker + callback-based workflow (includes backend URL for direct upload)
-   - `backend.service.ts`: HTTP client for backend interactions (token generation)
+   - `backend.service.ts`: HTTP client for backend interactions (token generation, with user header forwarding)
    - `upload.service.ts`: Deprecated - no longer needed (processor uploads directly to backend)
    - `queue.service.ts`: Bull/Redis queue (prepared for future async processing)
-6. **Utilities** (`src/utils/normalize.ts`): Field normalization (camelCase ↔ snake_case), boolean parsing, tag validation
+7. **Utilities** (`src/utils/normalize.ts`): Field normalization (camelCase ↔ snake_case), boolean parsing, tag validation
 
 ### Data Processing Pipeline
 
@@ -122,6 +146,21 @@ All config is in `src/config.ts` using Zod validation. Environment variables:
 - `NODE_ENV`: Environment mode - `development`, `production`, or `test` (default: `development`)
 - `WORKERS`: Number of worker processes (default: `4`, or set to `auto` for CPU count)
 
+**Authentication Configuration (Optional - Better Auth):**
+- `AUTH_ENABLED`: Enable/disable authentication (default: `false`)
+- `BETTER_AUTH_SECRET`: Secret for session signing (required if auth enabled, generate with: `openssl rand -base64 32`)
+- `BETTER_AUTH_URL`: Router's public URL for OAuth callbacks (required if auth enabled, e.g., `https://router.artorizer.com`)
+- `ALLOWED_ORIGINS`: CORS allowed origins (default: `http://localhost:8080`)
+- `DB_HOST`: PostgreSQL host (default: `localhost`)
+- `DB_PORT`: PostgreSQL port (default: `5432`)
+- `DB_USER`: PostgreSQL user (default: `artorizer`)
+- `DB_PASSWORD`: PostgreSQL password (required if auth enabled)
+- `DB_NAME`: PostgreSQL database name (default: `artorizer_db`)
+- `GOOGLE_CLIENT_ID`: Google OAuth client ID (optional)
+- `GOOGLE_CLIENT_SECRET`: Google OAuth client secret (optional)
+- `GITHUB_CLIENT_ID`: GitHub OAuth client ID (optional)
+- `GITHUB_CLIENT_SECRET`: GitHub OAuth client secret (optional)
+
 **External Services:**
 - `BACKEND_URL`: Backend storage API endpoint - handles all database operations (default: `http://localhost:5001`)
 - `BACKEND_TIMEOUT`: HTTP timeout for backend requests (default: `30000` ms)
@@ -150,9 +189,40 @@ See `.env.example` for all available options.
 
 ## API Endpoints
 
+### Authentication Endpoints (Optional - Better Auth)
+
+When `AUTH_ENABLED=true`, Better Auth endpoints are automatically mounted:
+
+- **`GET /api/auth/signin/google`** - Initiate Google OAuth flow
+- **`GET /api/auth/signin/github`** - Initiate GitHub OAuth flow
+- **`GET /api/auth/callback/google`** - Google OAuth callback
+- **`GET /api/auth/callback/github`** - GitHub OAuth callback
+- **`GET /api/auth/session`** - Get current user session
+- **`POST /api/auth/sign-out`** - Sign out and clear session
+
+**User Object Structure:**
+```typescript
+{
+  id: string;              // UUID
+  email: string;
+  name?: string;
+  image?: string;         // Profile picture URL
+  emailVerified: boolean;
+  createdAt: string;      // ISO 8601 timestamp
+}
+```
+
+**Session Management:**
+- Sessions stored in PostgreSQL via Better Auth
+- 7-day session duration with 1-day refresh window
+- httpOnly cookies for security (`better-auth.session_token`)
+- Secure cookies in production (HTTPS required)
+
 ### POST /protect
 
 Accepts `multipart/form-data` or `application/json`.
+
+**Authentication:** Optional - uses `optionalAuth` middleware. If authenticated, user info is extracted from session cookie and forwarded to backend via HTTP headers (`X-User-Id`, `X-User-Email`, `X-User-Name`).
 
 **Required fields:**
 - `artist_name` (string, 1-120 chars)
@@ -297,6 +367,8 @@ The processor should call this endpoint at the start of each major processing st
 
 Get job status. Checks Redis first for processing jobs, then falls back to backend for completed jobs.
 
+**Authentication:** Optional - uses `optionalAuth` middleware. If authenticated, user headers are forwarded to backend for access control.
+
 **Response:**
 - `200 OK` (processing):
 ```json
@@ -339,6 +411,8 @@ Get job status. Checks Redis first for processing jobs, then falls back to backe
 
 Get complete job result with backend URLs. Returns 409 if job is still processing.
 
+**Authentication:** Optional - uses `optionalAuth` middleware. If authenticated, user headers are forwarded to backend for access control.
+
 **Response:**
 - `200 OK`: Full artwork metadata + URLs to backend files (when completed)
 - `200 OK`: Failed job details (when failed)
@@ -350,6 +424,8 @@ Get complete job result with backend URLs. Returns 409 if job is still processin
 Proxy download from backend. Fetches the file from backend storage and streams it to the client.
 
 **Variants:** `original`, `protected`, `mask`
+
+**Authentication:** Optional - uses `optionalAuth` middleware. If authenticated, user headers are forwarded to backend for access control.
 
 **Response:**
 - `200 OK`: File streamed with appropriate `content-type` and `content-disposition` headers
@@ -452,6 +528,18 @@ Uses Sharp for image validation:
 3. By tags (array intersection)
 
 Returns first match found. The backend handles all database operations, indexing, and query optimization.
+
+**User Header Forwarding:**
+When authenticated users make requests, the router forwards user context to backend via HTTP headers:
+- `X-User-Id`: User's UUID
+- `X-User-Email`: User's email address
+- `X-User-Name`: User's display name (if available)
+
+This allows the backend to:
+- Associate artworks with specific users
+- Implement user-based access control
+- Track user activity and ownership
+- Enable multi-tenant artwork management
 
 ## Job State Tracking
 
@@ -565,18 +653,21 @@ Key libraries:
 ```
 src/
 ├── index.ts              # Cluster entry point
-├── app.ts                # Fastify app factory
+├── app.ts                # Fastify app factory + Better Auth integration
+├── auth.ts               # Better Auth initialization (optional)
 ├── config.ts             # Zod-validated config
+├── middleware/
+│   └── auth.middleware.ts        # requireAuth & optionalAuth middleware
 ├── routes/
-│   ├── protect.ts        # POST /protect handler
+│   ├── protect.ts        # POST /protect handler (with optionalAuth)
 │   ├── callback.ts       # POST /callbacks/process-complete handler
-│   ├── jobs.ts           # GET /jobs/{id}, GET /jobs/{id}/result
+│   ├── jobs.ts           # GET /jobs/{id}, GET /jobs/{id}/result (with optionalAuth)
 │   └── health.ts         # GET /health, /health/live, /health/ready
 ├── services/
 │   ├── job-tracker.service.ts     # Redis-based job state tracking
-│   ├── duplicate.service.ts       # Backend API client (duplicates + artwork queries)
+│   ├── duplicate.service.ts       # Backend API client (duplicates + artwork queries) + user header forwarding
 │   ├── processor.service.ts       # HTTP client with callback workflow + backend URL injection
-│   ├── backend.service.ts         # HTTP client for backend storage (token generation)
+│   ├── backend.service.ts         # HTTP client for backend storage (token generation) + user header forwarding
 │   ├── upload.service.ts      # Deprecated - no longer needed
 │   └── queue.service.ts       # Bull queue (future)
 ├── types/
