@@ -22,6 +22,8 @@ Client → Router → Processor → Backend
 ## Features
 
 - **High Performance**: Fastify-based with clustering (1000+ req/s)
+- **Optional Authentication**: Better Auth with OAuth (Google, GitHub) for user management
+- **User Context Forwarding**: Automatic user header forwarding to backend for access control
 - **Secure Pipeline**: Token-based authentication for processor uploads
 - **Smart Deduplication**: Backend API integration prevents duplicate processing
 - **Circuit Breaker**: Automatic failover when processor unavailable
@@ -163,6 +165,7 @@ curl http://localhost:7000/health/ready
 ### Guides
 
 - **[Deployment Guide](DEPLOYMENT.md)** - Production deployment with systemd, nginx, SSL
+- **[Authentication Setup](AUTH_README.md)** - Better Auth configuration and OAuth setup
 - **[Project Instructions](CLAUDE.md)** - Architecture overview and development guidelines
 - **[Test Documentation](tests/README.md)** - Integration testing guide
 
@@ -184,6 +187,25 @@ PORT=7000
 NODE_ENV=production
 WORKERS=4
 
+# Authentication (Optional - Better Auth)
+AUTH_ENABLED=false
+BETTER_AUTH_SECRET=your-secret-here  # Generate with: openssl rand -base64 32
+BETTER_AUTH_URL=https://router.artorizer.com
+ALLOWED_ORIGINS=https://artorizer.com,http://localhost:8080
+
+# PostgreSQL (Required if AUTH_ENABLED=true)
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=artorizer
+DB_PASSWORD=your-secure-password
+DB_NAME=artorizer_db
+
+# OAuth Providers (Optional)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
+
 # External Services
 BACKEND_URL=http://localhost:5001
 PROCESSOR_URL=http://localhost:8000
@@ -201,6 +223,8 @@ MAX_FILE_SIZE=268435456  # 256MB
 RATE_LIMIT_MAX=100
 RATE_LIMIT_WINDOW=60000
 ```
+
+**Note:** Authentication is **disabled by default** (`AUTH_ENABLED=false`) for backward compatibility. Enable it only when you have PostgreSQL configured and OAuth providers set up. See **[AUTH_README.md](AUTH_README.md)** for complete setup instructions.
 
 ---
 
@@ -226,6 +250,8 @@ sudo nano /opt/artorizer-router/.env
 
 - **Fastify** - High-performance HTTP server
 - **TypeScript** - Type-safe development
+- **Better Auth** - OAuth authentication (optional)
+- **PostgreSQL** - Session storage (optional, for auth)
 - **Zod** - Runtime schema validation
 - **Sharp** - Image validation
 - **Undici** - Fast HTTP client

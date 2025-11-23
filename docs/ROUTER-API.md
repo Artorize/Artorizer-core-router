@@ -8,13 +8,137 @@ Complete API reference for the Artorizer Core Router.
 
 ## Table of Contents
 
-1. [Artwork Submission](#artwork-submission)
-2. [Job Status](#job-status)
-3. [Callback Endpoints](#callback-endpoints)
+1. [Authentication](#authentication) (Optional)
+2. [Artwork Submission](#artwork-submission)
+3. [Job Status](#job-status)
+4. [Callback Endpoints](#callback-endpoints)
    - [Process Complete Callback](#post-callbacksprocess-complete)
    - [Process Progress Callback](#post-callbacksprocess-progress)
-4. [Health Checks](#health-checks)
-5. [Error Codes](#error-codes)
+5. [Health Checks](#health-checks)
+6. [Error Codes](#error-codes)
+
+---
+
+## Authentication
+
+**Optional Feature** - Disabled by default (`AUTH_ENABLED=false`)
+
+When enabled, the router supports user authentication via Better Auth with OAuth providers (Google, GitHub). User information is automatically forwarded to the backend for access control and ownership tracking.
+
+### Authentication Flow
+
+1. Client initiates OAuth: `GET /api/auth/signin/google` (or `/github`)
+2. OAuth provider redirects to callback: `GET /api/auth/callback/google`
+3. Better Auth creates session and sets httpOnly cookie (`better-auth.session_token`)
+4. Client includes cookie in subsequent requests
+5. Router extracts user info and forwards to backend via HTTP headers
+
+### Available Endpoints
+
+When `AUTH_ENABLED=true`, the following endpoints are automatically mounted:
+
+#### GET /api/auth/signin/google
+
+Initiates Google OAuth flow. Redirects to Google for authentication.
+
+**Response:** HTTP 302 redirect to Google OAuth consent screen
+
+#### GET /api/auth/signin/github
+
+Initiates GitHub OAuth flow. Redirects to GitHub for authentication.
+
+**Response:** HTTP 302 redirect to GitHub OAuth consent screen
+
+#### GET /api/auth/callback/google
+
+OAuth callback endpoint for Google. Handles the OAuth code exchange and session creation.
+
+**Response:** HTTP 302 redirect to frontend with session cookie set
+
+#### GET /api/auth/callback/github
+
+OAuth callback endpoint for GitHub. Handles the OAuth code exchange and session creation.
+
+**Response:** HTTP 302 redirect to frontend with session cookie set
+
+#### GET /api/auth/session
+
+Get current authenticated user session.
+
+**Example:**
+```bash
+curl -X GET https://router.artorizer.com/api/auth/session \
+  --cookie "better-auth.session_token=xxx"
+```
+
+**Response (authenticated):**
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "image": "https://avatars.githubusercontent.com/u/12345",
+    "emailVerified": true,
+    "createdAt": "2025-01-15T10:30:00.000Z"
+  },
+  "session": {
+    "token": "session-token-here",
+    "expiresAt": "2025-01-22T10:30:00.000Z"
+  }
+}
+```
+
+**Response (not authenticated):**
+```json
+null
+```
+
+#### POST /api/auth/sign-out
+
+Sign out and clear session cookie.
+
+**Example:**
+```bash
+curl -X POST https://router.artorizer.com/api/auth/sign-out \
+  --cookie "better-auth.session_token=xxx"
+```
+
+**Response:**
+```json
+{
+  "success": true
+}
+```
+
+### User Header Forwarding
+
+When a user is authenticated, the router automatically forwards user context to the backend via HTTP headers on all user-facing endpoints:
+
+**Headers sent to backend:**
+- `X-User-Id`: User's UUID (e.g., `550e8400-e29b-41d4-a716-446655440000`)
+- `X-User-Email`: User's email address (e.g., `user@example.com`)
+- `X-User-Name`: User's display name (e.g., `John Doe`, optional)
+
+**Endpoints that forward user headers:**
+- `POST /protect` - Associates artwork with authenticated user
+- `GET /jobs/:id` - Enables backend access control
+- `GET /jobs/:id/result` - Enables backend access control
+- `GET /jobs/:id/download/:variant` - Enables backend access control
+
+The backend can use these headers to:
+- Associate artworks with specific users
+- Implement user-based access control (users can only see their own artworks)
+- Track user activity and ownership
+- Enable multi-tenant artwork management
+
+### Session Management
+
+- **Storage**: PostgreSQL via Better Auth
+- **Duration**: 7 days
+- **Refresh**: Sessions can be refreshed within 1 day of expiration
+- **Cookie**: `better-auth.session_token` (httpOnly, secure in production)
+- **CORS**: Credentials must be included in cross-origin requests
 
 ---
 
@@ -25,6 +149,8 @@ Complete API reference for the Artorizer Core Router.
 Submit artwork for protection processing. The router validates metadata, checks for duplicates, and forwards jobs to the processor.
 
 **Content-Type**: `multipart/form-data` or `application/json`
+
+**Authentication**: Optional - uses `optionalAuth` middleware. If authenticated (session cookie present), user info is extracted and forwarded to backend via `X-User-Id`, `X-User-Email`, `X-User-Name` headers. The backend can use these headers to associate the artwork with the authenticated user.
 
 #### Required Fields
 
@@ -161,10 +287,17 @@ Artwork already exists in the backend:
 
 Get job status. Checks Redis first for processing jobs, then falls back to backend for completed jobs.
 
+**Authentication**: Optional - uses `optionalAuth` middleware. If authenticated, user headers are forwarded to backend for access control (backend can restrict users to only see their own jobs).
+
 #### Example
 
 ```bash
+# Without authentication
 curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609
+
+# With authentication
+curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609 \
+  --cookie "better-auth.session_token=xxx"
 ```
 
 #### Response: Processing (200 OK)
@@ -258,10 +391,17 @@ curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609
 
 Get complete job result with backend URLs. Returns 409 if job is still processing.
 
+**Authentication**: Optional - uses `optionalAuth` middleware. If authenticated, user headers are forwarded to backend for access control.
+
 #### Example
 
 ```bash
+# Without authentication
 curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609/result
+
+# With authentication
+curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609/result \
+  --cookie "better-auth.session_token=xxx"
 ```
 
 #### Response: Completed (200 OK)
@@ -351,11 +491,18 @@ Proxy download from backend. Fetches the file from backend storage and streams i
 
 **Variants**: `original`, `protected`, `mask`
 
+**Authentication**: Optional - uses `optionalAuth` middleware. If authenticated, user headers are forwarded to backend for access control.
+
 #### Example
 
 ```bash
-# Download protected image
+# Download protected image (without authentication)
 curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609/download/protected \
+  -o protected.jpg
+
+# Download protected image (with authentication)
+curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609/download/protected \
+  --cookie "better-auth.session_token=xxx" \
   -o protected.jpg
 
 # Download mask (SAC v1.1 binary format)
@@ -866,6 +1013,17 @@ All configuration is via environment variables. See `.env.example` for all optio
 - `PROCESSOR_URL`: Processor core API endpoint (default: `http://localhost:8000`)
 - `CALLBACK_AUTH_TOKEN`: Secret token for validating processor callbacks
 - `MAX_FILE_SIZE`: Upload limit in bytes (default: `268435456` = 256MB)
+
+**Authentication settings (optional):**
+- `AUTH_ENABLED`: Enable/disable authentication (default: `false`)
+- `BETTER_AUTH_SECRET`: Secret for session signing (required if auth enabled)
+- `BETTER_AUTH_URL`: Router's public URL for OAuth callbacks (required if auth enabled)
+- `ALLOWED_ORIGINS`: CORS allowed origins for authenticated requests
+- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`: PostgreSQL connection (required if auth enabled)
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: Google OAuth credentials (optional)
+- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`: GitHub OAuth credentials (optional)
+
+See **[AUTH_README.md](../AUTH_README.md)** for complete authentication setup guide.
 
 ---
 
