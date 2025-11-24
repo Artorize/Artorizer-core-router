@@ -36,21 +36,25 @@ Client → Router POST /protect (optional: with auth cookie)
     7. Client queries: GET /jobs/{id} (via Router → Backend API, with user headers)
 ```
 
-**User Authentication Flow (Optional - Better Auth):**
+**User Authentication Flow (Optional - Better Auth via Backend):**
 ```
-Client → GET /api/auth/signin/google (or /github)
+Client → GET /api/auth/signin/google (or /github) [proxied to backend]
+          ↓
+    Router proxies request to Backend
           ↓
     OAuth Provider (Google/GitHub)
           ↓
-    GET /api/auth/callback/google
+    GET /api/auth/callback/google [backend handles OAuth]
           ↓
-    Better Auth creates session → Sets httpOnly cookie (better-auth.session_token)
+    Backend Better Auth creates session → Sets httpOnly cookie (better-auth.session_token)
+          ↓
+    Cookie returned to client via router proxy
           ↓
     Client makes requests with session cookie
           ↓
-    Router middleware (optionalAuth) extracts user info
+    Router middleware (optionalAuth) validates session via backend API
           ↓
-    User headers forwarded to Backend (X-User-Id, X-User-Email, X-User-Name)
+    User info extracted and forwarded to Backend (X-User-Id, X-User-Email, X-User-Name)
           ↓
     Backend associates operations with authenticated user
 ```
@@ -94,8 +98,8 @@ The clustering is implemented in `src/index.ts`. When `WORKERS > 1`, the primary
 ### Request Flow
 
 1. **Entry** (`src/index.ts`): Cluster orchestration, worker management
-2. **Application** (`src/app.ts`): Fastify setup, middleware, CORS, multipart handling, Better Auth integration
-3. **Authentication** (`src/auth.ts`, `src/middleware/auth.middleware.ts`): Better Auth setup, session management, user extraction
+2. **Application** (`src/app.ts`): Fastify setup, middleware, CORS, multipart handling, auth proxy to backend
+3. **Authentication** (`src/services/auth.service.ts`, `src/middleware/auth.middleware.ts`): Session validation via backend API, user extraction
 4. **Routing** (`src/routes/protect.ts`): Main `/protect` endpoint logic with optional auth
 5. **Validation** (`src/types/schemas.ts`): Zod schemas for type-safe validation
 6. **Services**:
@@ -146,20 +150,11 @@ All config is in `src/config.ts` using Zod validation. Environment variables:
 - `NODE_ENV`: Environment mode - `development`, `production`, or `test` (default: `development`)
 - `WORKERS`: Number of worker processes (default: `4`, or set to `auto` for CPU count)
 
-**Authentication Configuration (Optional - Better Auth):**
+**Authentication Configuration (Optional - via Backend):**
 - `AUTH_ENABLED`: Enable/disable authentication (default: `false`)
-- `BETTER_AUTH_SECRET`: Secret for session signing (required if auth enabled, generate with: `openssl rand -base64 32`)
-- `BETTER_AUTH_URL`: Router's public URL for OAuth callbacks (required if auth enabled, e.g., `https://router.artorizer.com`)
 - `ALLOWED_ORIGINS`: CORS allowed origins (default: `http://localhost:8080`)
-- `DB_HOST`: PostgreSQL host (default: `localhost`)
-- `DB_PORT`: PostgreSQL port (default: `5432`)
-- `DB_USER`: PostgreSQL user (default: `artorizer`)
-- `DB_PASSWORD`: PostgreSQL password (required if auth enabled)
-- `DB_NAME`: PostgreSQL database name (default: `artorizer_db`)
-- `GOOGLE_CLIENT_ID`: Google OAuth client ID (optional)
-- `GOOGLE_CLIENT_SECRET`: Google OAuth client secret (optional)
-- `GITHUB_CLIENT_ID`: GitHub OAuth client ID (optional)
-- `GITHUB_CLIENT_SECRET`: GitHub OAuth client secret (optional)
+
+**Note:** Router delegates all authentication to the backend. OAuth configuration, Better Auth setup, and database storage are all handled by the backend service. See [AUTH_README.md](AUTH_README.md) for complete authentication setup guide.
 
 **External Services:**
 - `BACKEND_URL`: Backend storage API endpoint - handles all database operations (default: `http://localhost:5001`)
@@ -189,16 +184,16 @@ See `.env.example` for all available options.
 
 ## API Endpoints
 
-### Authentication Endpoints (Optional - Better Auth)
+### Authentication Endpoints (Optional - Proxied to Backend)
 
-When `AUTH_ENABLED=true`, Better Auth endpoints are automatically mounted:
+When `AUTH_ENABLED=true`, authentication endpoints are proxied to the backend:
 
-- **`GET /api/auth/signin/google`** - Initiate Google OAuth flow
-- **`GET /api/auth/signin/github`** - Initiate GitHub OAuth flow
-- **`GET /api/auth/callback/google`** - Google OAuth callback
-- **`GET /api/auth/callback/github`** - GitHub OAuth callback
-- **`GET /api/auth/session`** - Get current user session
-- **`POST /api/auth/sign-out`** - Sign out and clear session
+- **`GET /api/auth/signin/google`** - Initiate Google OAuth flow (proxied to backend)
+- **`GET /api/auth/signin/github`** - Initiate GitHub OAuth flow (proxied to backend)
+- **`GET /api/auth/callback/google`** - Google OAuth callback (proxied to backend)
+- **`GET /api/auth/callback/github`** - GitHub OAuth callback (proxied to backend)
+- **`GET /api/auth/session`** - Get current user session (proxied to backend)
+- **`POST /api/auth/sign-out`** - Sign out and clear session (proxied to backend)
 
 **User Object Structure:**
 ```typescript
@@ -213,10 +208,11 @@ When `AUTH_ENABLED=true`, Better Auth endpoints are automatically mounted:
 ```
 
 **Session Management:**
-- Sessions stored in PostgreSQL via Better Auth
+- Sessions stored in MongoDB via Backend's Better Auth instance
 - 7-day session duration with 1-day refresh window
 - httpOnly cookies for security (`better-auth.session_token`)
 - Secure cookies in production (HTTPS required)
+- Router validates sessions by calling backend's `/api/auth/validate-session` endpoint
 
 ### POST /protect
 
@@ -653,17 +649,17 @@ Key libraries:
 ```
 src/
 ├── index.ts              # Cluster entry point
-├── app.ts                # Fastify app factory + Better Auth integration
-├── auth.ts               # Better Auth initialization (optional)
+├── app.ts                # Fastify app factory + auth proxy to backend
 ├── config.ts             # Zod-validated config
 ├── middleware/
-│   └── auth.middleware.ts        # requireAuth & optionalAuth middleware
+│   └── auth.middleware.ts        # requireAuth & optionalAuth middleware (validates via backend)
 ├── routes/
 │   ├── protect.ts        # POST /protect handler (with optionalAuth)
 │   ├── callback.ts       # POST /callbacks/process-complete handler
 │   ├── jobs.ts           # GET /jobs/{id}, GET /jobs/{id}/result (with optionalAuth)
 │   └── health.ts         # GET /health, /health/live, /health/ready
 ├── services/
+│   ├── auth.service.ts            # Session validation via backend API
 │   ├── job-tracker.service.ts     # Redis-based job state tracking
 │   ├── duplicate.service.ts       # Backend API client (duplicates + artwork queries) + user header forwarding
 │   ├── processor.service.ts       # HTTP client with callback workflow + backend URL injection

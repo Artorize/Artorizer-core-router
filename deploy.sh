@@ -12,7 +12,7 @@ set -u  # Exit on undefined variable
 
 # Configuration
 DEPLOY_ENV="${1:-production}"
-APP_NAME="artoize-router"
+APP_NAME="artorize-router"
 APP_USER="artorizer"
 APP_DIR="/opt/artorizer-router"
 LOG_DIR="/var/log/artorizer"

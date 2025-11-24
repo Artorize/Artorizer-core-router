@@ -2,6 +2,13 @@
 
 High-performance ingress API for the Artorizer image protection pipeline. Routes client requests, validates metadata, checks for duplicates, and forwards jobs to the processor core.
 
+## Authentication (Better Auth via Storage Backend)
+- Router is the only public ingress; it proxies all `/auth/*` calls to the storage backend where Better Auth (Mongo) runs.
+- Supported flows: email + username + password, Google, GitHub.
+- Proxies `/auth/oauth/:provider/start|/callback` to backend
+- Caches one `/auth/me` per request and forwards `X-User-Id`, `X-User-Email`, `X-User-Name` headers to backend
+- Session cookie name: `better-auth.session_token` (HttpOnly, Secure in prod, SameSite=Lax)
+
 ## Architecture
 
 ```

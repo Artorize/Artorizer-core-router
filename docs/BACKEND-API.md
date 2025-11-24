@@ -28,9 +28,13 @@ curl http://localhost:3000/artworks/{id}?variant=original
 
 ## Authentication
 
-The backend uses **token-based authentication** for secure processor integration.
+The backend supports **two authentication methods**:
 
-### How It Works
+### 1. Token-Based Authentication (Processor Integration)
+
+Used for secure processor uploads in the Artorize architecture.
+
+**How It Works**:
 
 1. **Router generates a token** via `POST /tokens` endpoint
 2. **Router passes token to both processor and backend**
@@ -38,22 +42,92 @@ The backend uses **token-based authentication** for secure processor integration
 4. **Token is consumed** (single-use) on first successful upload
 5. **Expired/used tokens are rejected** with 401 status
 
-### Security Benefits
-
+**Security Benefits**:
 - **One-time tokens**: Each token can only be used once, preventing replay attacks
-- **Time-limited**: Tokens expire after 1 hour (configurable)
+- **Time-limited**: Tokens expire after 1 hour (configurable, max 24 hours)
 - **Per-artwork isolation**: Compromised token affects only one artwork
-- **No static credentials**: Eliminates risk of leaked API keys destroying everything
+- **No static credentials**: Eliminates risk of leaked API keys
+
+### 2. Session-Based Authentication (User Authentication via Router)
+
+Used for user-specific operations when accessed via the Artorize router with Better Auth integration.
+
+**How It Works**:
+
+1. **User authenticates via router** using Better Auth (Google/GitHub OAuth)
+2. **Router sets session cookie** (`better-auth.session_token`)
+3. **Router validates session** against Better Auth/PostgreSQL
+4. **Router forwards user info** via custom headers when proxying to backend:
+    - `X-User-Id`: User's unique identifier
+    - `X-User-Email`: User's email address
+    - `X-User-Name`: User's display name
+5. **Backend validates headers** and associates artworks with user
+
+**IMPORTANT**: The backend does NOT validate the `better-auth.session_token` cookie directly. It relies on the router to:
+- Validate the session against Better Auth
+- Forward user information via headers
+- Only send headers for valid, authenticated sessions
+
+**User-Specific Features**:
+- Artworks are automatically associated with the authenticated user (`userId` field)
+- Users can retrieve only their own artworks via `/artworks/me`
+- Search can be filtered by user ID
+- Upload tracking and ownership management
 
 ### Protected Endpoints
 
-- `POST /artworks` - **Requires authentication** (token is consumed)
+- `POST /artworks` - **Requires authentication** (token or session)
+    - With token: Artwork uploaded without user association (`userId: null`)
+    - With session: Artwork associated with authenticated user
+- `GET /artworks/me` - **Requires user authentication** (session only)
+    - Must have valid `X-User-Id` header from router
 
 ### Public Endpoints
 
 All read endpoints remain public:
-- `GET /artworks/*` - Search, metadata, file streaming
+- `GET /artworks` - Search (can optionally filter by userId)
+- `GET /artworks/{id}/*` - Metadata, file streaming, downloads
 - `GET /health` - Health checks
+- `GET /artworks/check-exists` - Duplication checking
+
+## Router Integration
+
+This backend is designed to work seamlessly with the Artorize router (Fastify + Better Auth).
+
+**Architecture:**
+```
+User → Router (Fastify) → Backend (Express) → MongoDB
+       [Better Auth]      [GridFS Storage]
+```
+
+**Key Integration Points:**
+
+1. **User Authentication Flow**:
+    - Router handles all user authentication via Better Auth
+    - Router validates sessions and forwards user context via headers
+    - Backend trusts headers from router (assumes router is the only client)
+
+2. **Processor Upload Flow**:
+    - Router generates tokens via `POST /tokens`
+    - Router passes tokens to processor
+    - Processor uploads directly to backend with token
+
+3. **Security Model**:
+    - Backend binds to `127.0.0.1` (localhost only)
+    - Router acts as reverse proxy for external access
+    - Only router can reach backend (firewall protected)
+
+**For detailed integration requirements, see `ROUTER_INTEGRATION.md`.**
+
+### Router Requirements
+
+The router MUST:
+1. ✅ Forward `X-User-Id` header when user is authenticated
+2. ✅ Forward `X-User-Email` header when user is authenticated
+3. ✅ Forward `X-User-Name` header when user is authenticated
+4. ✅ Only forward headers for valid, authenticated sessions
+5. ✅ Call `POST /tokens` to generate tokens for processor uploads
+6. ✅ Act as reverse proxy since backend binds to localhost only
 
 ---
 
@@ -160,27 +234,149 @@ Get token statistics (monitoring).
 ---
 
 ### `GET /health`
-Service health status.
+Comprehensive service health status with component-level diagnostics.
 
-**Response**: `200 OK`
+**Response**: `200 OK` (healthy/degraded) or `503 Service Unavailable` (unhealthy)
+
+**Healthy Response Example**:
 ```json
-{ "ok": true, "uptime": 12345.67 }
+{
+  "status": "healthy",
+  "message": "All systems operational",
+  "timestamp": "2025-10-20T10:30:45.123Z",
+  "uptime": 86400.5,
+  "responseTime": 45,
+  "summary": {
+    "mongodb": "healthy",
+    "gridfs": "healthy",
+    "hashStorage": "healthy"
+  },
+  "components": {
+    "mongodb": {
+      "status": "healthy",
+      "connected": true,
+      "database": "artorize",
+      "version": "7.0.0",
+      "uptime": 86400,
+      "message": "MongoDB connection active"
+    },
+    "gridfs": {
+      "status": "healthy",
+      "bucketsFound": 6,
+      "bucketsExpected": 6,
+      "bucketsReady": true,
+      "buckets": {
+        "originals": true,
+        "protected": true,
+        "masks": true
+      },
+      "message": "All GridFS buckets initialized"
+    },
+    "hashStorage": {
+      "status": "healthy",
+      "artworksCount": 1234,
+      "indexesConfigured": true,
+      "message": "1234 artwork(s) stored"
+    }
+  },
+  "system": {
+    "nodeVersion": "v18.17.0",
+    "platform": "linux",
+    "memory": {
+      "heapUsed": 85,
+      "heapTotal": 120,
+      "rss": 150
+    }
+  }
+}
 ```
+
+**Fresh Installation Response Example** (no data yet):
+```json
+{
+  "status": "healthy",
+  "message": "All systems operational",
+  "timestamp": "2025-10-20T10:30:45.123Z",
+  "uptime": 120.5,
+  "responseTime": 42,
+  "summary": {
+    "mongodb": "healthy",
+    "gridfs": "healthy",
+    "hashStorage": "healthy"
+  },
+  "components": {
+    "mongodb": {
+      "status": "healthy",
+      "connected": true,
+      "database": "artorize",
+      "version": "7.0.0",
+      "uptime": 86400,
+      "message": "MongoDB connection active"
+    },
+    "gridfs": {
+      "status": "healthy",
+      "bucketsFound": 0,
+      "bucketsExpected": 6,
+      "bucketsReady": false,
+      "buckets": {
+        "originals": false,
+        "protected": false,
+        "masks": false
+      },
+      "message": "GridFS buckets will be created on first upload"
+    },
+    "hashStorage": {
+      "status": "healthy",
+      "artworksCount": 0,
+      "indexesConfigured": false,
+      "message": "Ready to store artworks"
+    }
+  },
+  "system": {
+    "nodeVersion": "v18.17.0",
+    "platform": "linux",
+    "memory": {
+      "heapUsed": 45,
+      "heapTotal": 80,
+      "rss": 95
+    }
+  }
+}
+```
+
+**Component Status Values**:
+- `healthy`: Component fully operational
+- `degraded`: Component partially operational (some features may not work)
+- `unhealthy`: Component not operational
+- `unknown`: Unable to determine component status
+
+**Notes**:
+- Health endpoint is **exempt from rate limiting** for monitoring purposes
+- Returns HTTP 503 when overall status is `unhealthy`, HTTP 200 otherwise
+- **Quick status check**: Use the `summary` field for at-a-glance component status
+- **Detailed diagnostics**: Check the `components` field for full component details
+- Each component includes a human-readable `message` field explaining its status
+- GridFS buckets are created on-demand when first file is uploaded
+- Fresh installations show `bucketsReady: false` but are still `healthy`
+- Memory values are in MB, `responseTime` is in milliseconds
 
 ---
 
 ### `POST /artworks`
 Upload artwork with multiple file variants.
 
-**Authentication**: Required
-**Header**: `Authorization: Bearer <token>`
+**Authentication**: Required (token or session)
+
+**Headers (choose one authentication method)**:
+- **Token-based**: `Authorization: Bearer <token>` (for processor uploads)
+- **Session-based**: `Cookie: better-auth.session_token=...` + `X-User-Id`, `X-User-Email`, `X-User-Name` (forwarded by router)
 
 **Content-Type**: `multipart/form-data`
 
 **Required Files**:
 - `original` - Original image (JPEG/PNG/WebP/AVIF/GIF, max 256MB)
 - `protected` - Protected variant (same formats)
-- `mask` - Grayscale mask (SAC v1.1 binary format, .sac extension, single file)
+- `mask` - Grayscale mask file (SAC v1 binary format, .sac extension)
 - `analysis` - Analysis JSON document
 - `summary` - Summary JSON document
 
@@ -196,6 +392,7 @@ Upload artwork with multiple file variants.
 ```json
 {
   "id": "60f7b3b3b3b3b3b3b3b3b3b3",
+  "userId": "user-uuid-from-session",
   "formats": {
     "original": {
       "contentType": "image/jpeg",
@@ -209,11 +406,13 @@ Upload artwork with multiple file variants.
 }
 ```
 
+**Note**: The `userId` field is only included if the upload was authenticated with a user session. For token-based uploads (processor), this field will be `null`.
+
 **Important**: The `id` field in the response is a MongoDB ObjectId that **must be used by the processor in callbacks** to the router. This allows the router to retrieve artwork files using other endpoints.
 
 **Errors**:
 - `400` - Missing files, invalid types, malformed JSON
-- `401` - Missing/invalid/expired authentication token
+- `401` - Missing/invalid/expired authentication (no token or session)
 - `429` - Rate limit exceeded
 
 ---
@@ -227,11 +426,11 @@ Stream artwork file.
 **Response**: `200 OK`
 - Binary file stream with proper MIME type
 - For images: returns JPEG/PNG/WebP/etc. as appropriate
-- For mask: returns SAC v1.1 binary format (application/octet-stream, single grayscale mask)
+- For masks: returns SAC v1 binary format (application/octet-stream)
 - Cache headers: `public, max-age=31536000, immutable`
 - ETag: `{id}-{variant}`
 
-**Note**: For mask files, prefer using the dedicated `/artworks/{id}/mask` endpoint with the `resolution` parameter.
+**Note**: For mask files, you can also use the dedicated `/artworks/{id}/mask` endpoint.
 
 **Errors**:
 - `400` - Invalid ID format
@@ -252,6 +451,7 @@ Complete artwork metadata.
   "tags": ["tag1", "tag2"],
   "createdAt": "2023-07-20T15:30:00Z",
   "uploadedAt": "2023-07-21T09:15:00Z",
+  "userId": "user-uuid",
   "formats": {
     "original": {
       "contentType": "image/jpeg",
@@ -266,6 +466,8 @@ Complete artwork metadata.
   "extra": { /* Additional metadata */ }
 }
 ```
+
+**Note**: The `userId` field will be `null` for artworks uploaded via token-based authentication (processor).
 
 ---
 
@@ -292,19 +494,24 @@ Available variant information.
 ---
 
 ### `GET /artworks/{id}/mask`
-Stream artwork mask file in SAC v1.1 binary format.
+Stream artwork grayscale mask file in SAC v1 binary format.
 
 **Response**: `200 OK`
-- Binary SAC v1.1 file stream (application/octet-stream, single grayscale mask)
+- Binary SAC v1 file stream (application/octet-stream)
 - Cache headers: `public, max-age=31536000, immutable`
 - ETag: `{id}-mask`
 - Content-Disposition: `inline; filename="{title}-mask.sac"`
 
 **Example**:
 ```bash
-# Get mask file
+# Get grayscale mask
+curl http://localhost:3000/artworks/{id}/mask
+
+# Save to file
 curl http://localhost:3000/artworks/{id}/mask -o mask.sac
 ```
+
+**Note**: The mask is stored in grayscale format using SAC v1 protocol. According to the poison mask grayscale protocol, this provides 3x smaller file sizes and 8.6x faster generation compared to RGB masks, with only minor quality loss (32.98 dB PSNR).
 
 **Errors**:
 - `400` - Invalid ID format
@@ -319,6 +526,7 @@ Search artworks.
 - `artist` (120 chars max) - Filter by artist
 - `q` (200 chars max) - Full-text search (title/description)
 - `tags` - Comma-separated tags
+- `userId` (100 chars max) - Filter by user ID
 - `limit` (1-10000, default: 20) - Results per page
 - `skip` (0-5000, default: 0) - Pagination offset
 
@@ -336,6 +544,46 @@ Search artworks.
   }
 ]
 ```
+
+---
+
+### `GET /artworks/me`
+Get artworks uploaded by the authenticated user.
+
+**Authentication**: Required (session-based only, NOT token-based)
+
+**Headers** (forwarded by router):
+- `Cookie: better-auth.session_token=...` (set by router)
+- `X-User-Id: <user-id>` (forwarded by router)
+- `X-User-Email: <user-email>` (forwarded by router)
+- `X-User-Name: <user-name>` (forwarded by router)
+
+**Query Parameters**:
+- `limit` (1-100, default: 20) - Results per page
+- `skip` (0-5000, default: 0) - Pagination offset
+
+**Response**: `200 OK`
+```json
+{
+  "artworks": [
+    {
+      "_id": "60f7b3b3b3b3b3b3b3b3b3b3",
+      "title": "Artwork Title",
+      "artist": "Artist Name",
+      "description": "Description...",
+      "tags": ["tag1", "tag2"],
+      "createdAt": "2023-07-20T15:30:00Z",
+      "uploadedAt": "2023-07-21T09:15:00Z",
+      "userId": "user-uuid"
+    }
+  ],
+  "total": 15,
+  "userId": "user-uuid"
+}
+```
+
+**Errors**:
+- `401` - Not authenticated, user ID not found in session, or token-based auth used (session required)
 
 ---
 
@@ -532,7 +780,7 @@ curl -X POST http://localhost:3000/artworks \
 # }
 ```
 
-**Note**: Mask file must be in SAC v1.1 binary format (single grayscale mask). The processor encodes mask_hi.png and mask_lo.png into a single .sac file using the `/v1/sac/encode` endpoint.
+**Note**: Mask files must be in SAC v1 binary format. You can generate them using the Python code provided in `sac_v_1_cdn_mask_transfer_protocol.md`.
 
 ### Processor Upload Example
 ```bash
@@ -580,7 +828,7 @@ curl "http://localhost:3000/artworks?artist=Picasso&limit=10&skip=20"
 
 ### Mask Retrieval Example
 ```bash
-# Get mask file (single grayscale mask in SAC v1.1 format)
+# Get grayscale mask
 curl "http://localhost:3000/artworks/{id}/mask" -o mask.sac
 
 # Alternative: using variant parameter

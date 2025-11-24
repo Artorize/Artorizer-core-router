@@ -1,18 +1,15 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { getAuth } from '../auth.js';
 import { config } from '../config.js';
 
 export interface AuthUser {
   id: string;
   email: string;
   name?: string;
-  image?: string;
-  emailVerified: boolean;
-  createdAt: string;
+  username?: string;
 }
 
 export interface AuthSession {
-  token: string;
+  id: string;
   expiresAt: string;
 }
 
@@ -22,6 +19,78 @@ declare module 'fastify' {
     user?: AuthUser;
     session?: AuthSession;
   }
+}
+
+// Use a symbol to cache a single /auth/me call per request
+const AUTH_CACHE_KEY = Symbol('authCache');
+
+/**
+ * Validate session with backend /auth/me endpoint.
+ * Caches the result on the request to avoid multiple roundtrips per request.
+ */
+async function validateSession(
+  request: FastifyRequest
+): Promise<{ user: AuthUser; session: AuthSession } | null> {
+  // If a previous middleware already resolved auth, reuse it
+  if (request.user && request.session) {
+    return { user: request.user, session: request.session };
+  }
+
+  const cached = (request as any)[AUTH_CACHE_KEY];
+  if (cached) {
+    return cached;
+  }
+
+  const cookieHeader = request.headers.cookie;
+  if (!cookieHeader) {
+    (request as any)[AUTH_CACHE_KEY] = null;
+    return null;
+  }
+
+  const headers: Record<string, string> = {
+    Cookie: cookieHeader,
+    'X-Forwarded-For': request.ip,
+    'X-Request-Id': request.id,
+  };
+
+  const fetchPromise = (async () => {
+    try {
+      const response = await fetch(`${config.backend.url}/auth/me`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = (await response.json()) as any;
+      if (!data.user || !data.session) {
+        return null;
+      }
+
+      return {
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          username: data.user.username,
+          name: data.user.name,
+        },
+        session: {
+          id: data.session.id,
+          expiresAt: data.session.expiresAt,
+        },
+      };
+    } catch (error) {
+      request.log.debug({ error }, 'Session validation failed');
+      return null;
+    }
+  })();
+
+  (request as any)[AUTH_CACHE_KEY] = fetchPromise;
+  const result = await fetchPromise;
+  (request as any)[AUTH_CACHE_KEY] = result;
+  return result;
 }
 
 /**
@@ -37,52 +106,19 @@ export async function requireAuth(
     return;
   }
 
-  try {
-    const auth = getAuth();
-    if (!auth) {
-      // Auth disabled, allow request
-      return;
-    }
+  const sessionData = await validateSession(request);
 
-    // Better Auth will validate session from cookie
-    const session = await auth.api.getSession({
-      headers: request.headers as Record<string, string>,
-    });
-
-    if (!session || !session.user) {
-      return reply.status(401).send({
-        error: 'Unauthorized',
-        message: 'Authentication required',
-        code: 'AUTH_REQUIRED',
-      });
-    }
-
-    // Attach user and session to request
-    request.user = {
-      id: session.user.id,
-      email: session.user.email,
-      name: session.user.name ?? undefined,
-      image: session.user.image ?? undefined,
-      emailVerified: session.user.emailVerified,
-      createdAt: session.user.createdAt instanceof Date
-        ? session.user.createdAt.toISOString()
-        : session.user.createdAt,
-    };
-
-    request.session = {
-      token: session.session.token,
-      expiresAt: session.session.expiresAt instanceof Date
-        ? session.session.expiresAt.toISOString()
-        : session.session.expiresAt,
-    };
-  } catch (error) {
-    request.log.error({ error }, 'Auth middleware error');
+  if (!sessionData) {
     return reply.status(401).send({
       error: 'Unauthorized',
-      message: 'Invalid session',
-      code: 'INVALID_SESSION',
+      message: 'Authentication required',
+      code: 'AUTH_REQUIRED',
     });
   }
+
+  // Attach user and session to request
+  request.user = sessionData.user;
+  request.session = sessionData.session;
 }
 
 /**
@@ -97,38 +133,10 @@ export async function optionalAuth(
     return;
   }
 
-  try {
-    const auth = getAuth();
-    if (!auth) {
-      return;
-    }
+  const sessionData = await validateSession(request);
 
-    // Try to get session, but don't fail if it doesn't exist
-    const session = await auth.api.getSession({
-      headers: request.headers as Record<string, string>,
-    });
-
-    if (session && session.user) {
-      request.user = {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.name ?? undefined,
-        image: session.user.image ?? undefined,
-        emailVerified: session.user.emailVerified,
-        createdAt: session.user.createdAt instanceof Date
-          ? session.user.createdAt.toISOString()
-          : session.user.createdAt,
-      };
-
-      request.session = {
-        token: session.session.token,
-        expiresAt: session.session.expiresAt instanceof Date
-          ? session.session.expiresAt.toISOString()
-          : session.session.expiresAt,
-      };
-    }
-  } catch (error) {
-    // Silent fail - optional auth doesn't block the request
-    request.log.debug({ error }, 'Optional auth failed');
+  if (sessionData) {
+    request.user = sessionData.user;
+    request.session = sessionData.session;
   }
 }

@@ -54,10 +54,12 @@ export interface UserHeaders {
 export class BackendService {
   private baseUrl: string;
   private timeout: number;
+  private internalApiKey: string | undefined;
 
   constructor() {
     this.baseUrl = config.backend.url;
     this.timeout = config.backend.timeout;
+    this.internalApiKey = config.backend.internalApiKey;
   }
 
   /**
@@ -141,7 +143,17 @@ export class BackendService {
   async generateToken(metadata?: { source?: string; jobId?: string }, userHeaders?: UserHeaders): Promise<{ token: string; tokenId: string; expiresAt: string }> {
     try {
       const body = metadata ? JSON.stringify({ metadata }) : undefined;
-      const baseHeaders = body ? { 'Content-Type': 'application/json' } : undefined;
+      const baseHeaders: Record<string, string> = {};
+
+      if (body) {
+        baseHeaders['Content-Type'] = 'application/json';
+      }
+
+      // Add internal API key for service-to-service auth
+      if (this.internalApiKey) {
+        baseHeaders['X-Internal-Key'] = this.internalApiKey;
+      }
+
       const headers = this.buildHeaders(baseHeaders, userHeaders);
 
       const response = await request(`${this.baseUrl}/tokens`, {
