@@ -304,7 +304,6 @@ export async function authRoute(app: FastifyInstance) {
    * Handle OAuth callback and pass cookies through
    */
   app.get('/auth/oauth/:provider/callback', async (request, reply) => {
-    const { provider } = request.params as { provider: string };
     try {
       const url = `${config.backend.url}${request.raw.url}`;
       const response = await fetch(url, {
