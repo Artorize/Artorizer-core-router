@@ -13,9 +13,9 @@ set -u  # Exit on undefined variable
 # Configuration
 DEPLOY_ENV="${1:-production}"
 APP_NAME="artorize-router"
-APP_USER="artorizer"
-APP_DIR="/opt/artorizer-router"
-LOG_DIR="/var/log/artorizer"
+APP_USER="artorize"
+APP_DIR="/opt/artorize-router"
+LOG_DIR="/var/log/artorize"
 NODE_VERSION="20"  # LTS version
 
 # Repository Configuration

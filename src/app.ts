@@ -41,7 +41,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: config.auth.enabled
       ? (origin, callback) => {
-          if (!origin || allowedOrigins.includes(origin)) {
+          // Allow all origins if "*" is in the allowed list
+          if (allowedOrigins.includes('*')) {
+            callback(null, true);
+          } else if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
           } else {
             callback(new Error('Not allowed by CORS'), false);
