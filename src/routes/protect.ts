@@ -27,10 +27,26 @@ interface MultipartBody {
 }
 
 export async function protectRoute(app: FastifyInstance) {
+  /**
+   * POST /protect - Submit artwork for image protection processing
+   *
+   * Authentication: Optional
+   * - If authenticated (session cookie present), artwork is associated with user
+   * - If anonymous, artwork is processed but not associated with a user
+   * - User context is forwarded to backend for access control and ownership tracking
+   *
+   * Accepted Content-Types:
+   * - multipart/form-data (file upload)
+   * - application/json (remote URL or local path)
+   */
   app.post('/protect', {
     preHandler: optionalAuth,
   }, async (request: FastifyRequest, reply: FastifyReply) => {
-    // Extract user information from authenticated session
+    // Extract user information from authenticated session for forwarding to backend
+    // User headers allow backend to:
+    // - Associate artwork with authenticated user
+    // - Implement user-based access control
+    // - Enable user-specific queries (GET /artworks/me)
     const userHeaders: UserHeaders | undefined = request.user ? {
       'X-User-Id': request.user.id,
       'X-User-Email': request.user.email,
@@ -173,6 +189,12 @@ export async function protectRoute(app: FastifyInstance) {
       const callbackAuthToken = config.router.callbackAuthToken;
 
       // Generate one-time authentication token for processor-to-backend upload
+      // This token is:
+      // - Single-use (consumed on first successful upload to backend)
+      // - Time-limited (1 hour default expiration)
+      // - Cryptographically random (16-character secure token)
+      // - Associated with this job for audit purposes
+      // The processor will use this token in the Authorization header when uploading results
       const backendService = getBackendService();
       const tokenData = await backendService.generateToken({
         source: 'router',

@@ -218,7 +218,19 @@ When `AUTH_ENABLED=true`, authentication endpoints are proxied to the backend:
 
 Accepts `multipart/form-data` or `application/json`.
 
-**Authentication:** Optional - uses `optionalAuth` middleware. If authenticated, user info is extracted from session cookie and forwarded to backend via HTTP headers (`X-User-Id`, `X-User-Email`, `X-User-Name`).
+**Authentication:** Optional - uses `optionalAuth` middleware.
+
+**Authentication Details:**
+- When user is authenticated (session cookie present), user info is extracted and forwarded to backend via HTTP headers:
+  - `X-User-Id`: User's unique identifier
+  - `X-User-Email`: User's email address
+  - `X-User-Name`: User's display name
+- Backend uses these headers to:
+  - Associate uploaded artwork with the authenticated user
+  - Enable user-specific queries and access control
+  - Track artwork ownership
+- Anonymous uploads (no session) are still accepted and processed
+- If artwork is associated with a user, it can be retrieved via `GET /artworks/me` (backend endpoint)
 
 **Required fields:**
 - `artist_name` (string, 1-120 chars)
@@ -363,7 +375,13 @@ The processor should call this endpoint at the start of each major processing st
 
 Get job status. Checks Redis first for processing jobs, then falls back to backend for completed jobs.
 
-**Authentication:** Optional - uses `optionalAuth` middleware. If authenticated, user headers are forwarded to backend for access control.
+**Authentication:** Optional - uses `optionalAuth` middleware.
+
+**Authentication Details:**
+- When user is authenticated, user context is forwarded to backend via headers for access control
+- Backend may restrict job details based on artwork ownership
+- Anonymous users can query their jobs by job_id
+- Authenticated users can retrieve more detailed information about their artwork
 
 **Response:**
 - `200 OK` (processing):
@@ -407,7 +425,13 @@ Get job status. Checks Redis first for processing jobs, then falls back to backe
 
 Get complete job result with backend URLs. Returns 409 if job is still processing.
 
-**Authentication:** Optional - uses `optionalAuth` middleware. If authenticated, user headers are forwarded to backend for access control.
+**Authentication:** Optional - uses `optionalAuth` middleware.
+
+**Authentication Details:**
+- When user is authenticated, user context is forwarded to backend for access control
+- Backend may restrict result access based on artwork ownership or job creator
+- Anonymous users can retrieve results by job_id
+- Authenticated users get additional metadata about their artwork
 
 **Response:**
 - `200 OK`: Full artwork metadata + URLs to backend files (when completed)
@@ -421,7 +445,13 @@ Proxy download from backend. Fetches the file from backend storage and streams i
 
 **Variants:** `original`, `protected`, `mask`
 
-**Authentication:** Optional - uses `optionalAuth` middleware. If authenticated, user headers are forwarded to backend for access control.
+**Authentication:** Optional - uses `optionalAuth` middleware.
+
+**Authentication Details:**
+- When user is authenticated, download access is controlled by backend based on artwork ownership
+- Anonymous users can download by job_id if the artwork is public
+- Authenticated users can download their own artwork
+- Backend enforces access control on file availability
 
 **Response:**
 - `200 OK`: File streamed with appropriate `content-type` and `content-disposition` headers

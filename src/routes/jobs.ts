@@ -18,9 +18,15 @@ const getArtworkId = (artwork: any): string | undefined => {
 
 export async function jobsRoute(app: FastifyInstance) {
   /**
-   * GET /jobs/:id
-   * Get job status
-   * Note: ID should be the backend artwork ID returned from the callback
+   * GET /jobs/:id - Get job status
+   *
+   * Authentication: Optional
+   * - If authenticated, user context is forwarded to backend for access control
+   * - Backend may restrict job details based on artwork ownership or job creator
+   * - Anonymous users can query jobs by job_id but may have limited details
+   * - Authenticated users get more detailed information about their artwork
+   *
+   * Note: ID should be the backend artwork ID (returned from callback)
    */
   app.get<{ Params: JobParams }>(
     '/jobs/:id',
@@ -31,7 +37,11 @@ export async function jobsRoute(app: FastifyInstance) {
       try {
         const { id } = request.params;
 
-        // Extract user information from authenticated session
+        // Extract user information from authenticated session for forwarding to backend
+        // User headers allow backend to:
+        // - Verify ownership of artwork for access control
+        // - Return user-specific details
+        // - Track user activity
         const userHeaders: UserHeaders | undefined = request.user ? {
           'X-User-Id': request.user.id,
           'X-User-Email': request.user.email,
@@ -112,9 +122,15 @@ export async function jobsRoute(app: FastifyInstance) {
   );
 
   /**
-   * GET /jobs/:id/result
-   * Get complete job result with backend URLs
-   * Note: ID should be the backend artwork ID returned from the callback
+   * GET /jobs/:id/result - Get complete job result with backend URLs
+   *
+   * Authentication: Optional
+   * - If authenticated, user context is forwarded to backend for access control
+   * - Backend may restrict result access based on artwork ownership or job creator
+   * - Returns full artwork metadata and download URLs when completed
+   * - Returns 409 Conflict if job is still processing
+   *
+   * Note: ID should be the backend artwork ID (returned from callback)
    */
   app.get<{ Params: JobParams }>(
     '/jobs/:id/result',
@@ -125,7 +141,11 @@ export async function jobsRoute(app: FastifyInstance) {
       try {
         const { id } = request.params;
 
-        // Extract user information from authenticated session
+        // Extract user information from authenticated session for forwarding to backend
+        // User headers allow backend to:
+        // - Verify ownership of artwork for access control
+        // - Return user-specific metadata and URLs
+        // - Enforce access restrictions
         const userHeaders: UserHeaders | undefined = request.user ? {
           'X-User-Id': request.user.id,
           'X-User-Email': request.user.email,
@@ -236,9 +256,16 @@ export async function jobsRoute(app: FastifyInstance) {
   );
 
   /**
-   * GET /jobs/:id/download/:variant
-   * Proxy download from backend
-   * Note: ID should be the backend artwork ID returned from the callback
+   * GET /jobs/:id/download/:variant - Proxy download from backend
+   *
+   * Authentication: Optional
+   * - If authenticated, user context is forwarded to backend for access control
+   * - Backend enforces access control based on artwork ownership
+   * - Anonymous users can download if artwork is public or by job_id
+   * - Authenticated users can download their own artwork
+   *
+   * Variants: original, protected, mask
+   * Note: ID should be the backend artwork ID (returned from callback)
    */
   app.get<{ Params: JobParams & { variant: string } }>(
     '/jobs/:id/download/:variant',
@@ -249,7 +276,11 @@ export async function jobsRoute(app: FastifyInstance) {
       try {
         const { id, variant } = request.params;
 
-        // Extract user information from authenticated session
+        // Extract user information from authenticated session for forwarding to backend
+        // User headers allow backend to:
+        // - Verify download access based on artwork ownership
+        // - Enforce access restrictions
+        // - Track downloads per user
         const userHeaders: UserHeaders | undefined = request.user ? {
           'X-User-Id': request.user.id,
           'X-User-Email': request.user.email,

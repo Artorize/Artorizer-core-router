@@ -363,4 +363,50 @@ export async function authRoute(app: FastifyInstance) {
       });
     }
   });
+
+  /**
+   * GET /auth/callback/:provider
+   * Handle Better Auth OAuth callback (standard path used by Better Auth)
+   */
+  app.get('/auth/callback/:provider', async (request, reply) => {
+    try {
+      const url = `${config.backend.url}${request.raw.url}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'X-Forwarded-For': request.ip,
+          'X-Request-Id': request.id,
+          Cookie: request.headers.cookie || '',
+        },
+        redirect: 'manual',
+      });
+
+      // Extract all cookies (OAuth session + PKCE/nonce cookies)
+      const setCookieHeaders = response.headers.getSetCookie?.() || [];
+      for (const cookie of setCookieHeaders) {
+        reply.header('set-cookie', cookie);
+      }
+
+      const location = response.headers.get('location');
+      if (location) {
+        reply.header('location', location);
+      }
+
+      reply.status(response.status);
+      if (response.status >= 300 && response.status < 400) {
+        return reply.send();
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (contentType) reply.header('content-type', contentType);
+      const body = await response.text();
+      return reply.send(body);
+    } catch (error) {
+      request.log.error({ error }, 'Failed to proxy OAuth callback');
+      return reply.status(500).send({
+        error: 'server_error',
+        message: 'Failed to complete OAuth flow',
+      });
+    }
+  });
 }

@@ -3,11 +3,22 @@
 High-performance ingress API for the Artorizer image protection pipeline. Routes client requests, validates metadata, checks for duplicates, and forwards jobs to the processor core.
 
 ## Authentication (Better Auth via Storage Backend)
+
+**Overview:**
 - Router is the only public ingress; it proxies all `/auth/*` calls to the storage backend where Better Auth (Mongo) runs.
-- Supported flows: email + username + password, Google, GitHub.
-- Proxies `/auth/oauth/:provider/start|/callback` to backend
+- Supported authentication flows: email + username + password, Google OAuth, GitHub OAuth.
+- Session-based authentication via httpOnly cookies (`better-auth.session_token`)
+
+**Authentication Status:**
+- **When AUTH_ENABLED=false (default):** All endpoints accept anonymous requests. User context is optional.
+- **When AUTH_ENABLED=true:** Authentication endpoints are available (`/api/auth/*`). Some endpoints may require authentication.
+
+**Key Features:**
+- Stateless router design - validates sessions by calling backend API
 - Caches one `/auth/me` per request and forwards `X-User-Id`, `X-User-Email`, `X-User-Name` headers to backend
 - Session cookie name: `better-auth.session_token` (HttpOnly, Secure in prod, SameSite=Lax)
+- Session duration: 7 days with 1-day refresh window
+- User context automatically forwarded to backend for user-associated operations
 
 ## Architecture
 
@@ -91,8 +102,27 @@ npm run dev
 
 ### Submit Artwork for Protection
 
+**Authentication:** Optional - but recommended for tracking artwork ownership and managing uploads.
+
+When authentication is enabled and a user is authenticated:
+- Artwork is associated with the authenticated user
+- User can retrieve their artworks via `GET /artworks/me` (backend endpoint)
+- User context is forwarded to the backend for access control
+
+**Anonymous Upload (no authentication):**
 ```bash
 curl -X POST http://localhost:7000/protect \
+  -F "image=@artwork.jpg" \
+  -F "artist_name=Jane Doe" \
+  -F "artwork_title=Forest Scene" \
+  -F "tags=nature,forest" \
+  -F "watermark_strategy=tree-ring"
+```
+
+**Authenticated Upload (with session cookie):**
+```bash
+curl -X POST http://localhost:7000/protect \
+  --cookie "better-auth.session_token=your_session_token" \
   -F "image=@artwork.jpg" \
   -F "artist_name=Jane Doe" \
   -F "artwork_title=Forest Scene" \
@@ -104,7 +134,8 @@ curl -X POST http://localhost:7000/protect \
 ```json
 {
   "job_id": "f2dc197c-43b9-404d-b3f3-159282802609",
-  "status": "processing"
+  "status": "processing",
+  "message": "Job queued for processing. Results will be available via callback."
 }
 ```
 
@@ -113,6 +144,7 @@ curl -X POST http://localhost:7000/protect \
 {
   "job_id": "60f7b3b3b3b3b3b3b3b3b3b3",
   "status": "exists",
+  "message": "Artwork already exists",
   "artwork": { /* existing artwork details */ }
 }
 ```
@@ -134,6 +166,148 @@ curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609/result
 ```bash
 curl http://localhost:7000/jobs/f2dc197c-43b9-404d-b3f3-159282802609/download/protected -o protected.jpg
 ```
+
+---
+
+## Authentication Guide
+
+### Enable Authentication
+
+To enable authentication, set the following environment variables:
+
+```env
+# Enable authentication
+AUTH_ENABLED=true
+
+# Backend service URL (handles all auth operations)
+BACKEND_URL=https://backend.artorizer.com
+
+# Allowed origins for CORS (required with AUTH_ENABLED=true)
+ALLOWED_ORIGINS=https://artorizer.com,http://localhost:8080
+```
+
+### Authentication Endpoints
+
+When `AUTH_ENABLED=true`, the following endpoints are available via the router (proxied to backend):
+
+#### Sign In with Google
+```bash
+# Redirect user to this URL
+https://router.artorizer.com/api/auth/signin/google
+
+# Backend processes OAuth, sets session cookie, redirects to redirect_url param
+```
+
+#### Sign In with GitHub
+```bash
+# Redirect user to this URL
+https://router.artorizer.com/api/auth/signin/github
+
+# Backend processes OAuth, sets session cookie, redirects to redirect_url param
+```
+
+#### Get Current Session
+```bash
+curl -X GET https://router.artorizer.com/api/auth/session \
+  --cookie "better-auth.session_token=your_token"
+
+# Response:
+{
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "image": "https://...",
+    "emailVerified": true,
+    "createdAt": "2024-01-15T10:30:00Z"
+  },
+  "session": {
+    "token": "...",
+    "expiresAt": "2024-01-22T10:30:00Z"
+  }
+}
+```
+
+#### Sign Out
+```bash
+curl -X POST https://router.artorizer.com/api/auth/sign-out \
+  --cookie "better-auth.session_token=your_token"
+
+# Response: Clears session cookie and logs out user
+```
+
+### Using Authentication in API Requests
+
+Once authenticated, include the session cookie in your requests:
+
+```bash
+# Example: Get authenticated user's artworks
+curl -X GET https://router.artorizer.com/artworks/me \
+  --cookie "better-auth.session_token=your_token"
+
+# Example: Submit artwork as authenticated user
+curl -X POST https://router.artorizer.com/protect \
+  --cookie "better-auth.session_token=your_token" \
+  -F "image=@artwork.jpg" \
+  -F "artist_name=Jane Doe" \
+  -F "artwork_title=Forest Scene"
+```
+
+### Authenticating from JavaScript
+
+```javascript
+// Sign in with Google (from browser)
+const response = await fetch('https://router.artorizer.com/api/auth/signin/google', {
+  method: 'GET',
+  credentials: 'include', // Important: Include cookies
+});
+// Browser will redirect and set session cookie
+
+// Get current session
+const session = await fetch('https://router.artorizer.com/api/auth/session', {
+  credentials: 'include', // Include session cookie
+});
+const data = await session.json();
+console.log('Authenticated as:', data.user.email);
+
+// Submit artwork as authenticated user
+const formData = new FormData();
+formData.append('image', imageFile);
+formData.append('artist_name', 'Jane Doe');
+formData.append('artwork_title', 'Forest Scene');
+
+const upload = await fetch('https://router.artorizer.com/protect', {
+  method: 'POST',
+  credentials: 'include', // Include session cookie
+  body: formData,
+});
+const result = await upload.json();
+console.log('Job ID:', result.job_id);
+```
+
+### User Context Forwarding
+
+When a user is authenticated, the router automatically forwards user context to the backend with these headers:
+
+- **X-User-Id**: User's unique identifier (UUID)
+- **X-User-Email**: User's email address
+- **X-User-Name**: User's display name
+
+The backend uses these headers to:
+- Associate artworks with specific users
+- Implement user-based access control
+- Track user activity and ownership
+- Enable user-specific queries (e.g., `GET /artworks/me`)
+
+### Complete Authentication Setup
+
+For complete authentication setup instructions including:
+- OAuth provider configuration (Google, GitHub)
+- MongoDB schema setup
+- Backend configuration
+- Troubleshooting
+
+See: **[AUTH_README.md](AUTH_README.md)**
 
 ---
 
