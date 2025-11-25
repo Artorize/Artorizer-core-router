@@ -30,14 +30,21 @@ export async function authRoute(app: FastifyInstance) {
    */
   app.post<{ Body: RegisterBody }>('/auth/register', async (request, reply) => {
     try {
-      const response = await fetch(`${config.backend.url}/auth/register`, {
+      // Transform to Better Auth format: sign-up/email expects { email, password, name }
+      const betterAuthBody = {
+        email: request.body.email,
+        password: request.body.password,
+        name: request.body.name || request.body.username,
+      };
+
+      const response = await fetch(`${config.backend.url}/auth/sign-up/email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Forwarded-For': request.ip,
           'X-Request-Id': request.id,
         },
-        body: JSON.stringify(request.body),
+        body: JSON.stringify(betterAuthBody),
       });
 
       // Extract all cookies from backend response (getSetCookie returns array)
@@ -75,14 +82,20 @@ export async function authRoute(app: FastifyInstance) {
    */
   app.post<{ Body: LoginBody }>('/auth/login', async (request, reply) => {
     try {
-      const response = await fetch(`${config.backend.url}/auth/login`, {
+      // Transform to Better Auth format: sign-in/email expects { email, password }
+      const betterAuthBody = {
+        email: request.body.emailOrUsername,
+        password: request.body.password,
+      };
+
+      const response = await fetch(`${config.backend.url}/auth/sign-in/email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Forwarded-For': request.ip,
           'X-Request-Id': request.id,
         },
-        body: JSON.stringify(request.body),
+        body: JSON.stringify(betterAuthBody),
       });
 
       // Extract all cookies from backend response (getSetCookie returns array)
@@ -132,7 +145,7 @@ export async function authRoute(app: FastifyInstance) {
         headers['Cookie'] = cookieHeader;
       }
 
-      const response = await fetch(`${config.backend.url}/auth/logout`, {
+      const response = await fetch(`${config.backend.url}/auth/sign-out`, {
         method: 'POST',
         headers,
       });
@@ -188,7 +201,7 @@ export async function authRoute(app: FastifyInstance) {
         headers['Cookie'] = cookieHeader;
       }
 
-      const response = await fetch(`${config.backend.url}/auth/me`, {
+      const response = await fetch(`${config.backend.url}/auth/get-session`, {
         method: 'GET',
         headers,
       });

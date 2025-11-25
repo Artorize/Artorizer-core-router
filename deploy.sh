@@ -306,9 +306,15 @@ systemctl start redis-server
 ################################################################################
 log_info "Starting services..."
 
-# Enable and start the application
+# Stop existing service if running (ensures clean restart with new code)
+if systemctl is-active --quiet "$APP_NAME"; then
+    log_info "Stopping existing service for update..."
+    systemctl stop "$APP_NAME"
+fi
+
+systemctl daemon-reload
 systemctl enable "$APP_NAME"
-systemctl restart "$APP_NAME"
+systemctl start "$APP_NAME"
 
 # Wait a moment for service to start
 sleep 3
