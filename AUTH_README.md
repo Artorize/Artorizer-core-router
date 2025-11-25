@@ -732,36 +732,143 @@ curl -X POST https://router.artorizer.com/protect \
 
 ---
 
+## OAuth Error Handling
+
+The router now includes a dedicated error handler for OAuth authentication failures. When Better Auth encounters an error during OAuth (e.g., `state_mismatch`), it redirects to `/auth/error` with error details.
+
+### GET /auth/error Endpoint
+
+This endpoint displays a user-friendly error page for OAuth failures:
+
+```
+GET /auth/error?error=state_mismatch&error_description=...
+```
+
+**Supported Error Codes:**
+- `state_mismatch` - Authentication state doesn't match (session expired)
+- `invalid_grant` - Auth code invalid or expired
+- `access_denied` - User denied access
+- `server_error` - OAuth provider error
+- `temporarily_unavailable` - Service temporarily unavailable
+
+**Response:** HTML error page with retry option
+
+---
+
+## APP_BASE_URL Configuration (CRITICAL)
+
+The `APP_BASE_URL` environment variable is critical for OAuth to work correctly. It must match the public URL where the router receives OAuth callbacks.
+
+### Configuration
+
+**Backend Environment Variable:**
+```bash
+# MUST match the public router URL where OAuth callbacks are received
+# Production:
+APP_BASE_URL=https://router.artorizer.com/auth
+
+# Development:
+APP_BASE_URL=http://localhost:7000/auth
+```
+
+**Why the `/auth` path?**
+- Better Auth uses `basePath: '/auth'` internally
+- OAuth callback URLs are built as: `${APP_BASE_URL}/callback/:provider`
+- Error redirect URLs are built as: `${APP_BASE_URL}/error`
+- These must match the actual router endpoints
+
+### Common Mistakes
+
+❌ **Wrong:**
+```bash
+APP_BASE_URL=https://router.artorizer.com        # Missing /auth
+APP_BASE_URL=https://backend.artorizer.com/auth  # Wrong hostname
+```
+
+✅ **Correct:**
+```bash
+APP_BASE_URL=https://router.artorizer.com/auth
+APP_BASE_URL=http://localhost:7000/auth
+```
+
+### state_mismatch Errors
+
+If you see `state_mismatch` errors after OAuth, the most common cause is incorrect `APP_BASE_URL`:
+
+1. **Verify `APP_BASE_URL` matches your router hostname**
+   ```bash
+   # Check backend systemd service
+   systemctl show artorize-backend --property=Environment | grep APP_BASE_URL
+   ```
+
+2. **Ensure OAuth callbacks are reaching the router**
+   - Google/GitHub redirect to: `https://<your-router-domain>/auth/callback/google`
+   - This request must reach the router, not bypass it
+
+3. **Check SSL certificate**
+   - Ensure HTTPS works for your router domain
+   - Self-signed certs may cause OAuth provider rejections
+
+4. **Verify Router is Accessible**
+   - OAuth providers cannot redirect to localhost
+   - Use a public domain in production
+
+---
+
 # Troubleshooting
 
 ## Backend Issues
 
 ### "Auth not initialized"
-- Verify `AUTH_ENABLED=true` in backend `.env`
-- Check `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` are set
+- Verify `AUTH_ENABLED=true` in backend `.env` or systemd service
+- Check `BETTER_AUTH_SECRET` and `APP_BASE_URL` are set
 - Verify MongoDB connection
 
 ### OAuth Redirect Mismatch
-- Ensure redirect URIs in OAuth apps match exactly:
-  - `https://backend.artorizer.com/api/auth/callback/google`
-  - `https://router.artorizer.com/api/auth/callback/google` (if proxying)
+- **CRITICAL**: Verify `APP_BASE_URL` environment variable is set correctly
+- Check `APP_BASE_URL` includes the `/auth` path
+- Ensure redirect URIs in OAuth apps match:
+  - `https://router.artorizer.com/auth/callback/google`
+  - `https://router.artorizer.com/auth/callback/github`
+- In OAuth provider settings, add both callback URLs
+
+### state_mismatch Errors
+- Verify `APP_BASE_URL` matches your public router URL (with `/auth` path)
+- Check systemd service has correct `APP_BASE_URL`:
+  ```bash
+  systemctl show artorize-backend --property=Environment | grep APP_BASE_URL
+  ```
+- Restart backend service after changing `APP_BASE_URL`:
+  ```bash
+  systemctl restart artorize-backend
+  ```
+- Check browser can access `/auth/error` endpoint:
+  ```bash
+  curl https://router.artorizer.com/auth/error?error=test
+  ```
 
 ### Session Not Persisting
-- Check CORS `credentials: true`
+- Check CORS `credentials: true` enabled on backend
 - Verify `ALLOWED_ORIGINS` includes frontend domain
 - Use HTTPS in production
+- Verify `APP_BASE_URL` is correct
 
 ## Router Issues
 
 ### "Session validation failed"
 - Verify `BACKEND_URL` points to correct backend
-- Check backend `/api/auth/validate-session` endpoint is working
+- Check backend `/auth/get-session` endpoint is working
 - Ensure cookies are being forwarded correctly
 
 ### User Headers Not Forwarding
 - Verify `optionalAuth` or `requireAuth` middleware is applied
 - Check `request.user` is populated before calling backend
 - Verify backend is reading `X-User-*` headers
+
+### OAuth Error Page Not Showing
+- Verify `AUTH_ENABLED=true` in router `.env`
+- Check that `/auth/error` route is registered
+- Ensure ALLOWED_ORIGINS includes the frontend domain for error page CORS
 
 ---
 
