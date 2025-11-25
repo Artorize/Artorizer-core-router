@@ -145,6 +145,12 @@ export async function authRoute(app: FastifyInstance) {
         headers['Cookie'] = cookieHeader;
       }
 
+      // Forward Origin header for CSRF protection in Better Auth
+      const originHeader = request.headers.origin;
+      if (originHeader) {
+        headers['Origin'] = originHeader;
+      }
+
       const response = await fetch(`${config.backend.url}/auth/sign-out`, {
         method: 'POST',
         headers,
