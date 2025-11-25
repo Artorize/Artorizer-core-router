@@ -409,4 +409,140 @@ export async function authRoute(app: FastifyInstance) {
       });
     }
   });
+
+  /**
+   * GET /auth/error
+   * Handle OAuth errors from Better Auth (state_mismatch, invalid_grant, etc.)
+   * Returns user-friendly error page
+   */
+  app.get('/auth/error', async (request, reply) => {
+    const { error, error_description } = request.query as { error?: string; error_description?: string };
+
+    const errorMessages: Record<string, string> = {
+      state_mismatch: 'The authentication state does not match. Your session may have expired. Please try again.',
+      invalid_grant: 'The authentication code is invalid or expired. Please try again.',
+      access_denied: 'You denied access to the application. Please try again.',
+      server_error: 'An authentication server error occurred. Please try again later.',
+      temporarily_unavailable: 'The authentication service is temporarily unavailable. Please try again later.',
+    };
+
+    const message = errorMessages[error as string] || error_description || 'An authentication error occurred. Please try again.';
+
+    // Return user-friendly HTML error page
+    reply.header('content-type', 'text/html; charset=utf-8');
+    return reply.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Authentication Error</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+          }
+          .container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            max-width: 500px;
+            text-align: center;
+          }
+          .error-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+          }
+          h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 16px;
+          }
+          .error-code {
+            color: #667eea;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+          }
+          p {
+            color: #666;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+          }
+          .actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+          }
+          button, a {
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+          }
+          .btn-primary {
+            background: #667eea;
+            color: white;
+          }
+          .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+          }
+          .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+          }
+          .btn-secondary:hover {
+            background: #e0e0e0;
+            transform: translateY(-2px);
+          }
+          .details {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #eee;
+            font-size: 12px;
+            color: #999;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="error-icon">⚠️</div>
+          <div class="error-code">${error || 'error'}</div>
+          <h1>Authentication Failed</h1>
+          <p>${message}</p>
+          <div class="actions">
+            <button class="btn-primary" onclick="retryAuth()">Try Again</button>
+            <a href="/" class="btn-secondary">Go Home</a>
+          </div>
+          <div class="details">
+            ${error ? `<div>Error code: <code>${error}</code></div>` : ''}
+            <div>If this problem persists, please contact support.</div>
+          </div>
+        </div>
+        <script>
+          function retryAuth() {
+            window.history.back();
+          }
+        </script>
+      </body>
+      </html>
+    `);
+  });
 }
