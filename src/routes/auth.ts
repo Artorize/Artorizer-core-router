@@ -422,8 +422,10 @@ export async function authRoute(app: FastifyInstance) {
    * Handles all Better Auth routes not explicitly defined above (OAuth flows, callbacks, etc.)
    * Forwards all headers, cookies, and redirects transparently to backend
    */
-  app.all('/auth/*', async (request, reply) => {
-    request.log.debug({ url: request.raw.url, method: request.method }, '[CATCH-ALL] Auth proxy request');
+
+  // Helper function to proxy requests to backend
+  const proxyAuthHandler = async (request: any, reply: any) => {
+    request.log.debug({ url: request.raw.url, method: request.method }, '[PROXY] Auth request to backend');
     try {
       const backendUrl = `${config.backend.url}${request.raw.url}`;
 
@@ -507,5 +509,13 @@ export async function authRoute(app: FastifyInstance) {
         message: 'Failed to process authentication request',
       });
     }
-  });
+  };
+
+  // Register catch-all routes for all HTTP methods
+  app.get('/auth/*', proxyAuthHandler);
+  app.post('/auth/*', proxyAuthHandler);
+  app.put('/auth/*', proxyAuthHandler);
+  app.patch('/auth/*', proxyAuthHandler);
+  app.delete('/auth/*', proxyAuthHandler);
+  app.head('/auth/*', proxyAuthHandler);
 }
