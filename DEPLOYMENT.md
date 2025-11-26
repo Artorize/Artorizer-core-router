@@ -162,13 +162,13 @@ This creates the necessary tables: `users`, `accounts`, `sessions`.
 For **Google OAuth**:
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a project and enable OAuth
-3. Add authorized redirect URI: `https://your-domain.com/api/auth/callback/google`
+3. Add authorized redirect URI: `https://your-domain.com/auth/callback/google`
 4. Copy Client ID and Secret to `.env`
 
 For **GitHub OAuth**:
 1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
 2. Create a new OAuth App
-3. Set callback URL: `https://your-domain.com/api/auth/callback/github`
+3. Set callback URL: `https://your-domain.com/auth/callback/github`
 4. Copy Client ID and generate Client Secret, add to `.env`
 
 ### 2. Configure Domain and SSL

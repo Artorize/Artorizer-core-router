@@ -113,8 +113,8 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 4. Create **OAuth 2.0 Client ID**
 5. Add authorized redirect URIs:
    ```
-   https://backend.artorizer.com/api/auth/callback/google
-   https://router.artorizer.com/api/auth/callback/google
+   https://backend.artorizer.com/auth/callback/google
+   https://router.artorizer.com/auth/callback/google
    ```
 6. Copy Client ID and Client Secret to `.env`
 
@@ -124,8 +124,8 @@ GITHUB_CLIENT_SECRET=your-github-client-secret
 2. Click **New OAuth App**
 3. Set **Authorization callback URL**:
    ```
-   https://backend.artorizer.com/api/auth/callback/github
-   https://router.artorizer.com/api/auth/callback/github
+   https://backend.artorizer.com/auth/callback/github
+   https://router.artorizer.com/auth/callback/github
    ```
 4. Copy Client ID and generate Client Secret
 5. Add credentials to `.env`
@@ -184,34 +184,34 @@ The backend must expose the following endpoints:
 
 ### Auth Flow Endpoints (Better Auth)
 
-Mount Better Auth handler at `/api/auth/*`:
+Mount Better Auth handler at `/auth/*`:
 
 ```typescript
 import { auth } from './auth';
 
-app.all('/api/auth/*', async (req, res) => {
+app.all('/auth/*', async (req, res) => {
   return auth.handler(req, res);
 });
 ```
 
 This provides:
-- `GET /api/auth/signin/google` - Initiate Google OAuth
-- `GET /api/auth/signin/github` - Initiate GitHub OAuth
-- `GET /api/auth/callback/google` - Google OAuth callback
-- `GET /api/auth/callback/github` - GitHub OAuth callback
-- `GET /api/auth/session` - Get current session
-- `POST /api/auth/sign-out` - Sign out
+- `GET /auth/signin/google` - Initiate Google OAuth
+- `GET /auth/signin/github` - Initiate GitHub OAuth
+- `GET /auth/callback/google` - Google OAuth callback
+- `GET /auth/callback/github` - GitHub OAuth callback
+- `GET /auth/session` - Get current session
+- `POST /auth/sign-out` - Sign out
 
 ### Session Validation Endpoint (for Router)
 
-Create `POST /api/auth/validate-session`:
+Create `POST /auth/validate-session`:
 
 ```typescript
 /**
  * Validate session token and return user info
  * Used by the router to validate sessions
  */
-app.post('/api/auth/validate-session', async (req, res) => {
+app.post('/auth/validate-session', async (req, res) => {
   try {
     const session = await auth.api.getSession({
       headers: req.headers,
@@ -398,7 +398,7 @@ export async function validateSession(
 ): Promise<ValidateSessionResponse> {
   try {
     const { statusCode, body } = await request(
-      `${config.backend.url}/api/auth/validate-session`,
+      `${config.backend.url}/auth/validate-session`,
       {
         method: 'POST',
         headers: {
@@ -576,11 +576,11 @@ Route auth requests to the backend:
 
 ```typescript
 /**
- * Proxy all /api/auth/* requests to backend
+ * Proxy all /auth/* requests to backend
  * This allows OAuth flows to work through the router
  */
-app.all('/api/auth/*', async (request, reply) => {
-  const path = request.url; // e.g., /api/auth/signin/google
+app.all('/auth/*', async (request, reply) => {
+  const path = request.url; // e.g., /auth/signin/google
 
   const { statusCode, headers, body } = await request(
     `${config.backend.url}${path}`,
@@ -601,8 +601,8 @@ app.all('/api/auth/*', async (request, reply) => {
 ```
 
 This allows users to authenticate via:
-- `https://router.artorizer.com/api/auth/signin/google`
-- `https://router.artorizer.com/api/auth/session`
+- `https://router.artorizer.com/auth/signin/google`
+- `https://router.artorizer.com/auth/session`
 
 And the router proxies these to the backend.
 
@@ -619,10 +619,10 @@ And the router proxies these to the backend.
 npm start
 
 # Open browser to:
-https://backend.artorizer.com/api/auth/signin/google
+https://backend.artorizer.com/auth/signin/google
 
 # Complete OAuth, then check session:
-curl -X GET https://backend.artorizer.com/api/auth/session \
+curl -X GET https://backend.artorizer.com/auth/session \
   --cookie "better-auth.session_token=xxx"
 ```
 
@@ -630,7 +630,7 @@ curl -X GET https://backend.artorizer.com/api/auth/session \
 
 ```bash
 # Validate session
-curl -X POST https://backend.artorizer.com/api/auth/validate-session \
+curl -X POST https://backend.artorizer.com/auth/validate-session \
   -H "Cookie: better-auth.session_token=xxx"
 
 # Response (valid):
@@ -657,10 +657,10 @@ curl -X POST https://backend.artorizer.com/api/auth/validate-session \
 ```bash
 # OAuth via router (proxied to backend)
 # Open browser to:
-https://router.artorizer.com/api/auth/signin/google
+https://router.artorizer.com/auth/signin/google
 
 # Check session via router:
-curl -X GET https://router.artorizer.com/api/auth/session \
+curl -X GET https://router.artorizer.com/auth/session \
   --cookie "better-auth.session_token=xxx"
 ```
 
@@ -694,8 +694,8 @@ curl -X POST https://router.artorizer.com/protect \
 - [ ] Install `better-auth` and update MongoDB schema
 - [ ] Add auth configuration to `.env`
 - [ ] Create `src/auth.ts` with Better Auth + MongoDB
-- [ ] Implement `/api/auth/*` handler (Better Auth)
-- [ ] Implement `POST /api/auth/validate-session` endpoint
+- [ ] Implement `/auth/*` handler (Better Auth)
+- [ ] Implement `POST /auth/validate-session` endpoint
 - [ ] Update CORS to allow credentials
 - [ ] Add `user_id` field to `artworks` collection
 - [ ] Create index on `artworks.user_id`
@@ -712,7 +712,7 @@ curl -X POST https://router.artorizer.com/protect \
 - [ ] Create `src/services/auth.service.ts` (session validation via backend)
 - [ ] Update `src/middleware/auth.middleware.ts` (call backend API)
 - [ ] Add user header forwarding in backend service
-- [ ] Add `/api/auth/*` proxy to backend
+- [ ] Add `/auth/*` proxy to backend
 - [ ] Update config schema (remove DB fields)
 - [ ] Test session validation
 - [ ] Test protected routes
@@ -830,22 +830,23 @@ If you see `state_mismatch` errors after OAuth, the most common cause is incorre
 - Ensure redirect URIs in OAuth apps match:
   - `https://router.artorizer.com/auth/callback/google`
   - `https://router.artorizer.com/auth/callback/github`
-- In OAuth provider settings, add both callback URLs
+- In OAuth provider settings, add these exact callback URLs
 
 ### state_mismatch Errors
 - Verify `APP_BASE_URL` matches your public router URL (with `/auth` path)
 - Check systemd service has correct `APP_BASE_URL`:
   ```bash
-  systemctl show artorize-backend --property=Environment | grep APP_BASE_URL
+  systemctl show artorizer-backend --property=Environment | grep APP_BASE_URL
   ```
 - Restart backend service after changing `APP_BASE_URL`:
   ```bash
-  systemctl restart artorize-backend
+  systemctl restart artorizer-backend
   ```
 - Check browser can access `/auth/error` endpoint:
   ```bash
   curl https://router.artorizer.com/auth/error?error=test
   ```
+- Verify router is forwards `/auth/*` requests properly via Nginx
 
 ### Session Not Persisting
 - Check CORS `credentials: true` enabled on backend
@@ -857,7 +858,7 @@ If you see `state_mismatch` errors after OAuth, the most common cause is incorre
 
 ### "Session validation failed"
 - Verify `BACKEND_URL` points to correct backend
-- Check backend `/auth/get-session` endpoint is working
+- Check backend `/auth/validate-session` endpoint is working
 - Ensure cookies are being forwarded correctly
 
 ### User Headers Not Forwarding
@@ -869,6 +870,7 @@ If you see `state_mismatch` errors after OAuth, the most common cause is incorre
 - Verify `AUTH_ENABLED=true` in router `.env`
 - Check that `/auth/error` route is registered
 - Ensure ALLOWED_ORIGINS includes the frontend domain for error page CORS
+- Verify router is proxying `/auth/*` requests correctly via Nginx
 
 ---
 

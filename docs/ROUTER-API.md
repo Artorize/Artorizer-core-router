@@ -56,8 +56,8 @@ When authentication is **disabled or user is anonymous**:
 
 ### Authentication Flow
 
-1. Client initiates OAuth: `GET /api/auth/signin/google` (or `/github`)
-2. OAuth provider redirects to callback: `GET /api/auth/callback/google`
+1. Client initiates OAuth: `GET /auth/signin/google` (or `/github`)
+2. OAuth provider redirects to callback: `GET /auth/callback/google`
 3. Better Auth creates session and sets httpOnly cookie (`better-auth.session_token`)
 4. Client includes cookie in subsequent requests
 5. Router extracts user info and forwards to backend via HTTP headers
@@ -66,37 +66,37 @@ When authentication is **disabled or user is anonymous**:
 
 When `AUTH_ENABLED=true`, the following endpoints are automatically mounted:
 
-#### GET /api/auth/signin/google
+#### GET /auth/signin/google
 
 Initiates Google OAuth flow. Redirects to Google for authentication.
 
 **Response:** HTTP 302 redirect to Google OAuth consent screen
 
-#### GET /api/auth/signin/github
+#### GET /auth/signin/github
 
 Initiates GitHub OAuth flow. Redirects to GitHub for authentication.
 
 **Response:** HTTP 302 redirect to GitHub OAuth consent screen
 
-#### GET /api/auth/callback/google
+#### GET /auth/callback/google
 
 OAuth callback endpoint for Google. Handles the OAuth code exchange and session creation.
 
 **Response:** HTTP 302 redirect to frontend with session cookie set
 
-#### GET /api/auth/callback/github
+#### GET /auth/callback/github
 
 OAuth callback endpoint for GitHub. Handles the OAuth code exchange and session creation.
 
 **Response:** HTTP 302 redirect to frontend with session cookie set
 
-#### GET /api/auth/session
+#### GET /auth/session
 
 Get current authenticated user session.
 
 **Example:**
 ```bash
-curl -X GET https://router.artorizer.com/api/auth/session \
+curl -X GET https://router.artorizer.com/auth/session \
   --cookie "better-auth.session_token=xxx"
 ```
 
@@ -123,13 +123,13 @@ curl -X GET https://router.artorizer.com/api/auth/session \
 null
 ```
 
-#### POST /api/auth/sign-out
+#### POST /auth/sign-out
 
 Sign out and clear session cookie.
 
 **Example:**
 ```bash
-curl -X POST https://router.artorizer.com/api/auth/sign-out \
+curl -X POST https://router.artorizer.com/auth/sign-out \
   --cookie "better-auth.session_token=xxx"
 ```
 
@@ -611,6 +611,18 @@ File streamed with appropriate headers:
 ---
 
 ## Callback Endpoints
+
+### POST /auth/error
+
+OAuth error handler that displays user-friendly error messages when OAuth authentication fails.
+
+**Query Parameters:**
+- `error`: Error code (e.g., `state_mismatch`, `access_denied`)
+- `error_description`: Optional error description
+
+**Response:** HTML error page with retry options
+
+---
 
 ### POST /callbacks/process-complete
 

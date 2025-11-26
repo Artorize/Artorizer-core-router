@@ -11,7 +11,7 @@ High-performance ingress API for the Artorizer image protection pipeline. Routes
 
 **Authentication Status:**
 - **When AUTH_ENABLED=false (default):** All endpoints accept anonymous requests. User context is optional.
-- **When AUTH_ENABLED=true:** Authentication endpoints are available (`/api/auth/*`). Some endpoints may require authentication.
+- **When AUTH_ENABLED=true:** Authentication endpoints are available (`/auth/*`). Some endpoints may require authentication.
 
 **Key Features:**
 - Stateless router design - validates sessions by calling backend API
@@ -193,7 +193,7 @@ When `AUTH_ENABLED=true`, the following endpoints are available via the router (
 #### Sign In with Google
 ```bash
 # Redirect user to this URL
-https://router.artorizer.com/api/auth/signin/google
+https://router.artorizer.com/auth/signin/google
 
 # Backend processes OAuth, sets session cookie, redirects to redirect_url param
 ```
@@ -201,14 +201,14 @@ https://router.artorizer.com/api/auth/signin/google
 #### Sign In with GitHub
 ```bash
 # Redirect user to this URL
-https://router.artorizer.com/api/auth/signin/github
+https://router.artorizer.com/auth/signin/github
 
 # Backend processes OAuth, sets session cookie, redirects to redirect_url param
 ```
 
 #### Get Current Session
 ```bash
-curl -X GET https://router.artorizer.com/api/auth/session \
+curl -X GET https://router.artorizer.com/auth/session \
   --cookie "better-auth.session_token=your_token"
 
 # Response:
@@ -230,7 +230,7 @@ curl -X GET https://router.artorizer.com/api/auth/session \
 
 #### Sign Out
 ```bash
-curl -X POST https://router.artorizer.com/api/auth/sign-out \
+curl -X POST https://router.artorizer.com/auth/sign-out \
   --cookie "better-auth.session_token=your_token"
 
 # Response: Clears session cookie and logs out user
@@ -257,14 +257,14 @@ curl -X POST https://router.artorizer.com/protect \
 
 ```javascript
 // Sign in with Google (from browser)
-const response = await fetch('https://router.artorizer.com/api/auth/signin/google', {
+const response = await fetch('https://router.artorizer.com/auth/signin/google', {
   method: 'GET',
   credentials: 'include', // Important: Include cookies
 });
 // Browser will redirect and set session cookie
 
 // Get current session
-const session = await fetch('https://router.artorizer.com/api/auth/session', {
+const session = await fetch('https://router.artorizer.com/auth/session', {
   credentials: 'include', // Include session cookie
 });
 const data = await session.json();

@@ -38,13 +38,13 @@ Client → Router POST /protect (optional: with auth cookie)
 
 **User Authentication Flow (Optional - Better Auth via Backend):**
 ```
-Client → GET /api/auth/signin/google (or /github) [proxied to backend]
+Client → GET /auth/signin/google (or /github) [proxied to backend]
           ↓
     Router proxies request to Backend
           ↓
     OAuth Provider (Google/GitHub)
           ↓
-    GET /api/auth/callback/google [backend handles OAuth]
+    GET /auth/callback/google [backend handles OAuth]
           ↓
     Backend Better Auth creates session → Sets httpOnly cookie (better-auth.session_token)
           ↓
@@ -188,12 +188,12 @@ See `.env.example` for all available options.
 
 When `AUTH_ENABLED=true`, authentication endpoints are proxied to the backend:
 
-- **`GET /api/auth/signin/google`** - Initiate Google OAuth flow (proxied to backend)
-- **`GET /api/auth/signin/github`** - Initiate GitHub OAuth flow (proxied to backend)
-- **`GET /api/auth/callback/google`** - Google OAuth callback (proxied to backend)
-- **`GET /api/auth/callback/github`** - GitHub OAuth callback (proxied to backend)
-- **`GET /api/auth/session`** - Get current user session (proxied to backend)
-- **`POST /api/auth/sign-out`** - Sign out and clear session (proxied to backend)
+- **`GET /auth/signin/google`** - Initiate Google OAuth flow (proxied to backend)
+- **`GET /auth/signin/github`** - Initiate GitHub OAuth flow (proxied to backend)
+- **`GET /auth/callback/google`** - Google OAuth callback (proxied to backend)
+- **`GET /auth/callback/github`** - GitHub OAuth callback (proxied to backend)
+- **`GET /auth/session`** - Get current user session (proxied to backend)
+- **`POST /auth/sign-out`** - Sign out and clear session (proxied to backend)
 
 **User Object Structure:**
 ```typescript
@@ -212,7 +212,7 @@ When `AUTH_ENABLED=true`, authentication endpoints are proxied to the backend:
 - 7-day session duration with 1-day refresh window
 - httpOnly cookies for security (`better-auth.session_token`)
 - Secure cookies in production (HTTPS required)
-- Router validates sessions by calling backend's `/api/auth/validate-session` endpoint
+- Router validates sessions by calling backend's `/auth/validate-session` endpoint
 
 ### POST /protect
 
