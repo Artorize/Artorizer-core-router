@@ -71,7 +71,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Register auth proxy routes if enabled
   if (config.auth.enabled) {
-    app.register(authRoute);
+    app.register(authRoute, { prefix: '/api' });
     app.log.info('Authentication proxy routes registered (delegating to backend)');
   } else {
     // Log warning when auth is disabled
