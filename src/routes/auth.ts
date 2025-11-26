@@ -280,232 +280,6 @@ export async function authRoute(app: FastifyInstance) {
     }
   );
 
-  /**
-   * GET /auth/oauth/:provider/start
-   * Initiate OAuth with provider (google|github)
-   */
-  app.get('/auth/oauth/:provider/start', async (request, reply) => {
-    const startTime = Date.now();
-    const { provider } = request.params as { provider: string };
-
-    request.log.info(
-      {
-        provider,
-        backendUrl: config.backend.url,
-        clientIp: request.ip,
-        requestId: request.id,
-      },
-      '[OAUTH-START-ROUTER] OAuth start initiated'
-    );
-
-    try {
-      const backendUrl = `${config.backend.url}/auth/oauth/${provider}/start`;
-
-      request.log.info(
-        { provider, backendUrl },
-        '[OAUTH-START-ROUTER] Calling backend OAuth start'
-      );
-
-      const response = await fetch(backendUrl, {
-        method: 'GET',
-        headers: {
-          'X-Forwarded-For': request.ip,
-          'X-Request-Id': request.id,
-        },
-        redirect: 'manual',
-      });
-
-      // Forward PKCE/nonce cookies set during OAuth initiation
-      const setCookieHeaders = response.headers.getSetCookie?.() || [];
-
-      request.log.info(
-        {
-          provider,
-          status: response.status,
-          cookieCount: setCookieHeaders.length,
-          cookieNames: setCookieHeaders.map(c => c.split('=')[0]),
-          hasLocation: !!response.headers.get('location'),
-          duration: Date.now() - startTime,
-        },
-        '[OAUTH-START-ROUTER] Backend response received'
-      );
-
-      for (const cookie of setCookieHeaders) {
-        request.log.debug({ cookie: cookie.split(';')[0] }, '[OAUTH-START-ROUTER] Setting cookie');
-        reply.header('set-cookie', cookie);
-      }
-
-      // Proxy redirect location
-      const location = response.headers.get('location');
-      if (location) {
-        request.log.info(
-          { provider, location },
-          '[OAUTH-START-ROUTER] Redirecting to OAuth provider'
-        );
-        reply.header('location', location);
-      }
-      reply.status(response.status);
-      return reply.send();
-    } catch (error) {
-      request.log.error(
-        {
-          provider,
-          error: (error as Error).message,
-          stack: (error as Error).stack,
-          duration: Date.now() - startTime,
-        },
-        '[OAUTH-START-ROUTER] Failed to proxy OAuth start'
-      );
-      return reply.status(500).send({
-        error: 'server_error',
-        message: 'Failed to start OAuth flow',
-      });
-    }
-  });
-
-  /**
-   * GET /auth/oauth/:provider/callback
-   * Handle OAuth callback and pass cookies through
-   */
-  app.get('/auth/oauth/:provider/callback', async (request, reply) => {
-    try {
-      const url = `${config.backend.url}${request.raw.url}`;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'X-Forwarded-For': request.ip,
-          'X-Request-Id': request.id,
-          Cookie: request.headers.cookie || '',
-        },
-        redirect: 'manual',
-      });
-
-      // Extract all cookies (OAuth may set session + PKCE/nonce cookies)
-      const setCookieHeaders = response.headers.getSetCookie?.() || [];
-      for (const cookie of setCookieHeaders) {
-        reply.header('set-cookie', cookie);
-      }
-
-      const location = response.headers.get('location');
-      if (location) {
-        reply.header('location', location);
-      }
-
-      reply.status(response.status);
-      if (response.status >= 300 && response.status < 400) {
-        return reply.send();
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (contentType) reply.header('content-type', contentType);
-      const body = await response.text();
-      return reply.send(body);
-    } catch (error) {
-      request.log.error({ error }, 'Failed to proxy OAuth callback');
-      return reply.status(500).send({
-        error: 'server_error',
-        message: 'Failed to complete OAuth flow',
-      });
-    }
-  });
-
-  /**
-   * GET /auth/callback/:provider
-   * Handle Better Auth OAuth callback (standard path used by Better Auth)
-   */
-  app.get('/auth/callback/:provider', async (request, reply) => {
-    const startTime = Date.now();
-    const provider = (request.params as any).provider;
-
-    request.log.info(
-      {
-        provider,
-        url: request.raw.url,
-        hasCookies: !!request.headers.cookie,
-        backendUrl: config.backend.url,
-        query: request.query,
-      },
-      '[OAUTH-CALLBACK] Incoming OAuth callback from provider'
-    );
-
-    try {
-      const url = `${config.backend.url}${request.raw.url}`;
-
-      request.log.info(
-        { provider, backendUrl: url },
-        '[OAUTH-CALLBACK] Proxying callback to backend'
-      );
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'X-Forwarded-For': request.ip,
-          'X-Request-Id': request.id,
-          Cookie: request.headers.cookie || '',
-        },
-        redirect: 'manual',
-      });
-
-      request.log.info(
-        {
-          provider,
-          status: response.status,
-          hasLocation: !!response.headers.get('location'),
-          setCookies: (response.headers.getSetCookie?.() || []).length,
-        },
-        '[OAUTH-CALLBACK] Backend response received'
-      );
-
-      // Extract all cookies (OAuth session + PKCE/nonce cookies)
-      const setCookieHeaders = response.headers.getSetCookie?.() || [];
-      request.log.info(
-        {
-          provider,
-          cookieCount: setCookieHeaders.length,
-          cookieNames: setCookieHeaders.map(c => c.split('=')[0]),
-          duration: Date.now() - startTime
-        },
-        '[OAUTH-CALLBACK] Setting cookies in response'
-      );
-
-      for (const cookie of setCookieHeaders) {
-        reply.header('set-cookie', cookie);
-      }
-
-      const location = response.headers.get('location');
-      if (location) {
-        request.log.info(
-          { provider, location, status: response.status },
-          '[OAUTH-CALLBACK] Redirecting to location'
-        );
-        reply.header('location', location);
-      }
-
-      reply.status(response.status);
-      if (response.status >= 300 && response.status < 400) {
-        return reply.send();
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (contentType) reply.header('content-type', contentType);
-      const body = await response.text();
-      return reply.send(body);
-    } catch (error) {
-      request.log.error(
-        {
-          provider,
-          error: (error as Error).message,
-          stack: (error as Error).stack,
-          duration: Date.now() - startTime
-        },
-        '[OAUTH-CALLBACK] Failed to proxy OAuth callback'
-      );
-      return reply.status(500).send({
-        error: 'server_error',
-        message: 'Failed to complete OAuth flow',
-      });
-    }
-  });
 
   /**
    * GET /auth/error
@@ -641,5 +415,96 @@ export async function authRoute(app: FastifyInstance) {
       </body>
       </html>
     `);
+  });
+
+  /**
+   * Transparent catch-all proxy for remaining /auth/* routes
+   * Handles all Better Auth routes not explicitly defined above (OAuth flows, callbacks, etc.)
+   * Forwards all headers, cookies, and redirects transparently to backend
+   */
+  app.all('/auth/*', async (request, reply) => {
+    try {
+      const backendUrl = `${config.backend.url}${request.raw.url}`;
+
+      // Prepare headers - forward all incoming headers plus trace headers
+      const headers: Record<string, string> = {
+        'X-Forwarded-For': request.ip,
+        'X-Request-Id': request.id,
+      };
+
+      // Forward cookie header if present (critical for OAuth state/PKCE verification)
+      if (request.headers.cookie) {
+        headers['Cookie'] = request.headers.cookie;
+      }
+
+      // Forward origin header if present (needed for CSRF protection)
+      if (request.headers.origin) {
+        headers['Origin'] = request.headers.origin;
+      }
+
+      // Forward content-type for POST/PUT/PATCH requests
+      if (request.headers['content-type']) {
+        headers['Content-Type'] = request.headers['content-type'];
+      }
+
+      // Prepare request body for non-GET/HEAD requests
+      let body: string | undefined;
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        // For POST/PUT/PATCH, forward request body as JSON string
+        body = JSON.stringify(request.body);
+      }
+
+      // Proxy request to backend with manual redirect handling
+      const response = await fetch(backendUrl, {
+        method: request.method,
+        headers,
+        body,
+        redirect: 'manual', // Don't follow redirects - return them to client
+      });
+
+      // Forward all Set-Cookie headers (Better Auth may set multiple cookies)
+      const setCookieHeaders = response.headers.getSetCookie?.() || [];
+      for (const cookie of setCookieHeaders) {
+        reply.header('set-cookie', cookie);
+      }
+
+      // Forward redirect location if present
+      const location = response.headers.get('location');
+      if (location) {
+        reply.header('location', location);
+      }
+
+      // Forward content-type
+      const contentType = response.headers.get('content-type');
+      if (contentType) {
+        reply.header('content-type', contentType);
+      }
+
+      // Set response status
+      reply.status(response.status);
+
+      // For redirects (3xx), send empty body
+      if (response.status >= 300 && response.status < 400) {
+        return reply.send();
+      }
+
+      // For other responses, forward body as-is
+      const responseBody = await response.text();
+      return reply.send(responseBody);
+    } catch (error) {
+      request.log.error(
+        {
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+          url: request.raw.url,
+          method: request.method,
+        },
+        'Failed to proxy auth request to backend'
+      );
+      return reply.status(500).send({
+        error: 'server_error',
+        message: 'Failed to process authentication request',
+      });
+    }
   });
 }
