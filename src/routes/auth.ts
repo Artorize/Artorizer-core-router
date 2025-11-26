@@ -459,6 +459,8 @@ export async function authRoute(app: FastifyInstance) {
 
       // If backend returns a redirect, intercept it and redirect to frontend instead
       const backendLocation = response.headers.get('location');
+
+      // Handle successful redirects (3xx)
       if (response.status >= 300 && response.status < 400 && backendLocation) {
         // Parse the location URL to extract the target path
         // Backend might redirect to /auth/callback/success or with error query params
@@ -481,7 +483,17 @@ export async function authRoute(app: FastifyInstance) {
         }
       }
 
-      // If no redirect, set response status and return content
+      // Handle error responses (4xx, 5xx) - redirect to frontend error page
+      if (response.status >= 400) {
+        const errorCode = response.status === 401 ? 'unauthorized' : 'server_error';
+        request.log.warn(
+          { status: response.status, url: request.raw.url },
+          'OAuth callback failed with error status'
+        );
+        return reply.redirect(302, `https://artorizer.com/auth/error?error=${errorCode}`);
+      }
+
+      // For 2xx responses without redirect, set response status and return content
       reply.status(response.status);
       const contentType = response.headers.get('content-type');
       if (contentType) {
