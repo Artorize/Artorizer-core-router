@@ -471,26 +471,26 @@ export async function authRoute(app: FastifyInstance) {
 
           // Check if callback was successful (no error query params)
           if (!search.includes('error')) {
-            // Redirect to frontend dashboard after successful auth
-            return reply.redirect(302, `https://artorizer.com/dashboard?auth=success`);
+            // Redirect to frontend login page with success flag - login page handles session check and dashboard redirect
+            return reply.redirect(`https://artorizer.com/auth/login.html?auth=success`);
           } else {
-            // Redirect to frontend auth error page if OAuth failed
-            return reply.redirect(302, `https://artorizer.com/auth/error${search}`);
+            // Redirect to frontend login page with error params
+            return reply.redirect(`https://artorizer.com/auth/login.html${search}`);
           }
         } catch {
           // If URL parsing fails, redirect to frontend home
-          return reply.redirect(302, `https://artorizer.com`);
+          return reply.redirect(`https://artorizer.com`);
         }
       }
 
-      // Handle error responses (4xx, 5xx) - redirect to frontend error page
+      // Handle error responses (4xx, 5xx) - redirect to frontend login page with error
       if (response.status >= 400) {
         const errorCode = response.status === 401 ? 'unauthorized' : 'server_error';
         request.log.warn(
           { status: response.status, url: request.raw.url },
           'OAuth callback failed with error status'
         );
-        return reply.redirect(302, `https://artorizer.com/auth/error?error=${errorCode}`);
+        return reply.redirect(`https://artorizer.com/auth/login.html?error=${errorCode}`);
       }
 
       // For 2xx responses without redirect, set response status and return content
@@ -510,7 +510,7 @@ export async function authRoute(app: FastifyInstance) {
         },
         'Failed to process OAuth callback'
       );
-      return reply.redirect(302, `https://artorizer.com/auth/error?error=server_error`);
+      return reply.redirect(`https://artorizer.com/auth/login.html?error=server_error`);
     }
   };
 
