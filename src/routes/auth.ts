@@ -423,6 +423,7 @@ export async function authRoute(app: FastifyInstance) {
    * Forwards all headers, cookies, and redirects transparently to backend
    */
   app.all('/auth/*', async (request, reply) => {
+    request.log.debug({ url: request.raw.url, method: request.method }, '[CATCH-ALL] Auth proxy request');
     try {
       const backendUrl = `${config.backend.url}${request.raw.url}`;
 
