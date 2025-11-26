@@ -245,24 +245,49 @@ export async function protectRoute(app: FastifyInstance) {
         message: 'Job queued for processing. Results will be available via callback.',
       });
     } catch (error: any) {
-      request.log.error(error, 'Error processing protect request');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : '';
+
+      request.log.error(
+        {
+          error: errorMessage,
+          stack: errorStack,
+          type: error.constructor.name,
+        },
+        'Error processing protect request'
+      );
 
       // Circuit breaker errors
-      if (error.message?.includes('circuit breaker')) {
+      if (errorMessage?.includes('circuit breaker')) {
         return reply.status(503).send({
           error: 'Processor service temporarily unavailable',
+          statusCode: 503,
         });
       }
 
       // Processor errors
-      if (error.message?.includes('Processor returned')) {
+      if (errorMessage?.includes('Processor returned')) {
         return reply.status(502).send({
           error: 'Upstream processor error',
-          detail: error.message,
+          detail: errorMessage,
+          statusCode: 502,
         });
       }
 
-      throw error;
+      // Backend/service communication errors
+      if (errorMessage?.includes('Failed to') || errorMessage?.includes('returned')) {
+        return reply.status(502).send({
+          error: 'Service integration error',
+          detail: errorMessage,
+          statusCode: 502,
+        });
+      }
+
+      // Generic internal server error
+      return reply.status(500).send({
+        error: 'Internal server error',
+        statusCode: 500,
+      });
     }
   });
 }
