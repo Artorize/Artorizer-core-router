@@ -418,6 +418,92 @@ export async function authRoute(app: FastifyInstance) {
   });
 
   /**
+   * Special handler for OAuth callbacks (/auth/callback/*)
+   * After OAuth provider redirects to the callback endpoint, Better Auth on backend
+   * creates the session. We then redirect the user back to the frontend (artorizer.com)
+   * instead of staying on the API gateway (router.artorizer.com).
+   */
+  const callbackHandler = async (request: any, reply: any) => {
+    request.log.debug({ url: request.raw.url }, '[CALLBACK] Processing OAuth callback');
+    try {
+      const backendUrl = `${config.backend.url}${request.raw.url}`;
+
+      // Prepare headers - forward all incoming headers plus trace headers
+      const headers: Record<string, string> = {
+        'X-Forwarded-For': request.ip,
+        'X-Request-Id': request.id,
+      };
+
+      // Forward cookie header if present (critical for OAuth state/PKCE verification)
+      if (request.headers.cookie) {
+        headers['Cookie'] = request.headers.cookie;
+      }
+
+      // Forward origin header if present (needed for CSRF protection)
+      if (request.headers.origin) {
+        headers['Origin'] = request.headers.origin;
+      }
+
+      // Proxy callback to backend
+      const response = await fetch(backendUrl, {
+        method: request.method,
+        headers,
+        redirect: 'manual',
+      });
+
+      // Forward all Set-Cookie headers (Better Auth sets session cookie here)
+      const setCookieHeaders = response.headers.getSetCookie?.() || [];
+      for (const cookie of setCookieHeaders) {
+        reply.header('set-cookie', cookie);
+      }
+
+      // If backend returns a redirect, intercept it and redirect to frontend instead
+      const backendLocation = response.headers.get('location');
+      if (response.status >= 300 && response.status < 400 && backendLocation) {
+        // Parse the location URL to extract the target path
+        // Backend might redirect to /auth/callback/success or with error query params
+        // We want to redirect the user back to the frontend dashboard
+        try {
+          const urlObj = new URL(backendLocation, `${config.backend.url}`);
+          const path = urlObj.pathname;
+          const search = urlObj.search;
+
+          // Check if callback was successful (no error query params)
+          if (!search.includes('error')) {
+            // Redirect to frontend dashboard after successful auth
+            return reply.redirect(302, `https://artorizer.com/dashboard?auth=success`);
+          } else {
+            // Redirect to frontend auth error page if OAuth failed
+            return reply.redirect(302, `https://artorizer.com/auth/error${search}`);
+          }
+        } catch {
+          // If URL parsing fails, redirect to frontend home
+          return reply.redirect(302, `https://artorizer.com`);
+        }
+      }
+
+      // If no redirect, set response status and return content
+      reply.status(response.status);
+      const contentType = response.headers.get('content-type');
+      if (contentType) {
+        reply.header('content-type', contentType);
+      }
+      const responseBody = await response.text();
+      return reply.send(responseBody);
+    } catch (error) {
+      request.log.error(
+        {
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+          url: request.raw.url,
+        },
+        'Failed to process OAuth callback'
+      );
+      return reply.redirect(302, `https://artorizer.com/auth/error?error=server_error`);
+    }
+  };
+
+  /**
    * Transparent catch-all proxy for remaining /auth/* routes
    * Handles all Better Auth routes not explicitly defined above (OAuth flows, callbacks, etc.)
    * Forwards all headers, cookies, and redirects transparently to backend
@@ -511,7 +597,12 @@ export async function authRoute(app: FastifyInstance) {
     }
   };
 
-  // Register catch-all routes for all HTTP methods
+  // Register callback handler BEFORE catch-all routes (more specific routes first)
+  // This handles OAuth redirects from Google/GitHub back to the callback endpoint
+  app.get('/auth/callback/:provider', callbackHandler);
+  app.post('/auth/callback/:provider', callbackHandler);
+
+  // Register catch-all routes for all other /auth/* paths
   app.get('/auth/*', proxyAuthHandler);
   app.post('/auth/*', proxyAuthHandler);
   app.put('/auth/*', proxyAuthHandler);

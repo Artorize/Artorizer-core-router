@@ -80,7 +80,11 @@ export class DuplicateDetectionService {
 
       // Build query parameters based on what's provided
       if (params.checksum) {
-        queryParams.append('checksum', params.checksum);
+        // Backend expects just the 64-char hex string without the 'sha256:' prefix
+        const cleanChecksum = params.checksum.startsWith('sha256:')
+          ? params.checksum.substring(7)
+          : params.checksum;
+        queryParams.append('checksum', cleanChecksum);
       } else if (params.title && params.artist) {
         queryParams.append('title', params.title);
         queryParams.append('artist', params.artist);
