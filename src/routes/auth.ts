@@ -285,9 +285,28 @@ export async function authRoute(app: FastifyInstance) {
    * Initiate OAuth with provider (google|github)
    */
   app.get('/auth/oauth/:provider/start', async (request, reply) => {
+    const startTime = Date.now();
     const { provider } = request.params as { provider: string };
+
+    request.log.info(
+      {
+        provider,
+        backendUrl: config.backend.url,
+        clientIp: request.ip,
+        requestId: request.id,
+      },
+      '[OAUTH-START-ROUTER] OAuth start initiated'
+    );
+
     try {
-      const response = await fetch(`${config.backend.url}/auth/oauth/${provider}/start`, {
+      const backendUrl = `${config.backend.url}/auth/oauth/${provider}/start`;
+
+      request.log.info(
+        { provider, backendUrl },
+        '[OAUTH-START-ROUTER] Calling backend OAuth start'
+      );
+
+      const response = await fetch(backendUrl, {
         method: 'GET',
         headers: {
           'X-Forwarded-For': request.ip,
@@ -298,19 +317,45 @@ export async function authRoute(app: FastifyInstance) {
 
       // Forward PKCE/nonce cookies set during OAuth initiation
       const setCookieHeaders = response.headers.getSetCookie?.() || [];
+
+      request.log.info(
+        {
+          provider,
+          status: response.status,
+          cookieCount: setCookieHeaders.length,
+          cookieNames: setCookieHeaders.map(c => c.split('=')[0]),
+          hasLocation: !!response.headers.get('location'),
+          duration: Date.now() - startTime,
+        },
+        '[OAUTH-START-ROUTER] Backend response received'
+      );
+
       for (const cookie of setCookieHeaders) {
+        request.log.debug({ cookie: cookie.split(';')[0] }, '[OAUTH-START-ROUTER] Setting cookie');
         reply.header('set-cookie', cookie);
       }
 
       // Proxy redirect location
       const location = response.headers.get('location');
       if (location) {
+        request.log.info(
+          { provider, location },
+          '[OAUTH-START-ROUTER] Redirecting to OAuth provider'
+        );
         reply.header('location', location);
       }
       reply.status(response.status);
       return reply.send();
     } catch (error) {
-      request.log.error({ error }, 'Failed to proxy OAuth start');
+      request.log.error(
+        {
+          provider,
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+          duration: Date.now() - startTime,
+        },
+        '[OAUTH-START-ROUTER] Failed to proxy OAuth start'
+      );
       return reply.status(500).send({
         error: 'server_error',
         message: 'Failed to start OAuth flow',
@@ -369,8 +414,28 @@ export async function authRoute(app: FastifyInstance) {
    * Handle Better Auth OAuth callback (standard path used by Better Auth)
    */
   app.get('/auth/callback/:provider', async (request, reply) => {
+    const startTime = Date.now();
+    const provider = (request.params as any).provider;
+
+    request.log.info(
+      {
+        provider,
+        url: request.raw.url,
+        hasCookies: !!request.headers.cookie,
+        backendUrl: config.backend.url,
+        query: request.query,
+      },
+      '[OAUTH-CALLBACK] Incoming OAuth callback from provider'
+    );
+
     try {
       const url = `${config.backend.url}${request.raw.url}`;
+
+      request.log.info(
+        { provider, backendUrl: url },
+        '[OAUTH-CALLBACK] Proxying callback to backend'
+      );
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -381,14 +446,38 @@ export async function authRoute(app: FastifyInstance) {
         redirect: 'manual',
       });
 
+      request.log.info(
+        {
+          provider,
+          status: response.status,
+          hasLocation: !!response.headers.get('location'),
+          setCookies: (response.headers.getSetCookie?.() || []).length,
+        },
+        '[OAUTH-CALLBACK] Backend response received'
+      );
+
       // Extract all cookies (OAuth session + PKCE/nonce cookies)
       const setCookieHeaders = response.headers.getSetCookie?.() || [];
+      request.log.info(
+        {
+          provider,
+          cookieCount: setCookieHeaders.length,
+          cookieNames: setCookieHeaders.map(c => c.split('=')[0]),
+          duration: Date.now() - startTime
+        },
+        '[OAUTH-CALLBACK] Setting cookies in response'
+      );
+
       for (const cookie of setCookieHeaders) {
         reply.header('set-cookie', cookie);
       }
 
       const location = response.headers.get('location');
       if (location) {
+        request.log.info(
+          { provider, location, status: response.status },
+          '[OAUTH-CALLBACK] Redirecting to location'
+        );
         reply.header('location', location);
       }
 
@@ -402,7 +491,15 @@ export async function authRoute(app: FastifyInstance) {
       const body = await response.text();
       return reply.send(body);
     } catch (error) {
-      request.log.error({ error }, 'Failed to proxy OAuth callback');
+      request.log.error(
+        {
+          provider,
+          error: (error as Error).message,
+          stack: (error as Error).stack,
+          duration: Date.now() - startTime
+        },
+        '[OAUTH-CALLBACK] Failed to proxy OAuth callback'
+      );
       return reply.status(500).send({
         error: 'server_error',
         message: 'Failed to complete OAuth flow',
