@@ -465,7 +465,6 @@ export async function authRoute(app: FastifyInstance) {
         // We want to redirect the user back to the frontend dashboard
         try {
           const urlObj = new URL(backendLocation, `${config.backend.url}`);
-          const path = urlObj.pathname;
           const search = urlObj.search;
 
           // Check if callback was successful (no error query params)
