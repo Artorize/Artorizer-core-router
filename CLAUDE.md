@@ -38,13 +38,16 @@ Client → Router POST /protect (optional: with auth cookie)
 
 **User Authentication Flow (Optional - Better Auth via Backend):**
 ```
-Client → GET /auth/signin/google (or /github) [proxied to backend]
+Client → POST /auth/sign-in/social [proxied to backend]
+         JSON body: {"provider":"google"} or {"provider":"github"}
           ↓
     Router proxies request to Backend
           ↓
-    OAuth Provider (Google/GitHub)
+    Backend returns OAuth URL: {"url":"https://...", "redirect":true}
           ↓
-    GET /auth/callback/google [backend handles OAuth]
+    Client navigates to OAuth URL → OAuth Provider (Google/GitHub)
+          ↓
+    Provider redirects to: GET /auth/callback/google [backend handles OAuth]
           ↓
     Backend Better Auth creates session → Sets httpOnly cookie (better-auth.session_token)
           ↓

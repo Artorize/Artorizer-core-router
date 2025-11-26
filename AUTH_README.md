@@ -195,12 +195,13 @@ app.all('/auth/*', async (req, res) => {
 ```
 
 This provides:
-- `GET /auth/signin/google` - Initiate Google OAuth
-- `GET /auth/signin/github` - Initiate GitHub OAuth
+- `POST /auth/sign-in/social` - Initiate OAuth flow (Google/GitHub) with JSON body `{"provider":"google"}` or `{"provider":"github"}`
 - `GET /auth/callback/google` - Google OAuth callback
 - `GET /auth/callback/github` - GitHub OAuth callback
 - `GET /auth/session` - Get current session
 - `POST /auth/sign-out` - Sign out
+- `GET /auth/signin/google` (deprecated) - Use `POST /auth/sign-in/social` instead
+- `GET /auth/signin/github` (deprecated) - Use `POST /auth/sign-in/social` instead
 
 ### Session Validation Endpoint (for Router)
 
@@ -601,8 +602,8 @@ app.all('/auth/*', async (request, reply) => {
 ```
 
 This allows users to authenticate via:
-- `https://router.artorizer.com/auth/signin/google`
-- `https://router.artorizer.com/auth/session`
+- `POST https://router.artorizer.com/auth/sign-in/social` with JSON body `{"provider":"google"}` or `{"provider":"github"}`
+- `GET https://router.artorizer.com/auth/session`
 
 And the router proxies these to the backend.
 
@@ -618,10 +619,13 @@ And the router proxies these to the backend.
 # Start backend
 npm start
 
-# Open browser to:
-https://backend.artorizer.com/auth/signin/google
+# Initiate OAuth flow:
+curl -X POST https://backend.artorizer.com/auth/sign-in/social \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"google"}'
 
-# Complete OAuth, then check session:
+# Response will include OAuth URL to navigate to
+# After completing OAuth, check session:
 curl -X GET https://backend.artorizer.com/auth/session \
   --cookie "better-auth.session_token=xxx"
 ```
@@ -656,10 +660,12 @@ curl -X POST https://backend.artorizer.com/auth/validate-session \
 
 ```bash
 # OAuth via router (proxied to backend)
-# Open browser to:
-https://router.artorizer.com/auth/signin/google
+curl -X POST https://router.artorizer.com/auth/sign-in/social \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"google"}'
 
-# Check session via router:
+# Response will include OAuth URL to navigate to
+# After completing OAuth, check session via router:
 curl -X GET https://router.artorizer.com/auth/session \
   --cookie "better-auth.session_token=xxx"
 ```

@@ -56,27 +56,37 @@ When authentication is **disabled or user is anonymous**:
 
 ### Authentication Flow
 
-1. Client initiates OAuth: `GET /auth/signin/google` (or `/github`)
-2. OAuth provider redirects to callback: `GET /auth/callback/google`
-3. Better Auth creates session and sets httpOnly cookie (`better-auth.session_token`)
-4. Client includes cookie in subsequent requests
-5. Router extracts user info and forwards to backend via HTTP headers
+1. Client initiates OAuth: `POST /auth/sign-in/social` with JSON body `{"provider":"google"}` or `{"provider":"github"}`
+2. Backend returns OAuth URL: `{"url":"https://oauth-provider-url...", "redirect":true}`
+3. Client navigates to the OAuth URL → OAuth provider redirects back to callback: `GET /auth/callback/google`
+4. Better Auth creates session and sets httpOnly cookie (`better-auth.session_token`)
+5. Client includes cookie in subsequent requests
+6. Router extracts user info and forwards to backend via HTTP headers
 
 ### Available Endpoints
 
 When `AUTH_ENABLED=true`, the following endpoints are automatically mounted:
 
-#### GET /auth/signin/google
+#### POST /auth/sign-in/social
 
-Initiates Google OAuth flow. Redirects to Google for authentication.
+Initiates OAuth flow for specified provider. Returns OAuth redirect URL.
 
-**Response:** HTTP 302 redirect to Google OAuth consent screen
+**Request:**
+```bash
+curl -X POST https://router.artorizer.com/auth/sign-in/social \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"google"}'
+```
 
-#### GET /auth/signin/github
+**Response:**
+```json
+{
+  "url": "https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=...&redirect_uri=...",
+  "redirect": true
+}
+```
 
-Initiates GitHub OAuth flow. Redirects to GitHub for authentication.
-
-**Response:** HTTP 302 redirect to GitHub OAuth consent screen
+Then navigate client to the returned `url`. OAuth provider will redirect back to `GET /auth/callback/google` (or `/github`).
 
 #### GET /auth/callback/google
 
@@ -89,6 +99,10 @@ OAuth callback endpoint for Google. Handles the OAuth code exchange and session 
 OAuth callback endpoint for GitHub. Handles the OAuth code exchange and session creation.
 
 **Response:** HTTP 302 redirect to frontend with session cookie set
+
+**Legacy Endpoints (Deprecated):**
+- `GET /auth/signin/google` - Use `POST /auth/sign-in/social` with `{"provider":"google"}` instead
+- `GET /auth/signin/github` - Use `POST /auth/sign-in/social` with `{"provider":"github"}` instead
 
 #### GET /auth/session
 
