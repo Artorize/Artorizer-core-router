@@ -228,6 +228,52 @@ export class BackendService {
       return { exists: false, matches: [] };
     }
   }
+
+  /**
+   * Get artwork history for logged-in user
+   */
+  async getMyArtworks(fastifyRequest: any, params?: { limit?: number; skip?: number }): Promise<any> {
+    try {
+      const queryParams = new URLSearchParams();
+
+      if (params?.limit !== undefined) {
+        queryParams.append('limit', params.limit.toString());
+      }
+
+      if (params?.skip !== undefined) {
+        queryParams.append('skip', params.skip.toString());
+      }
+
+      // Extract user headers from request
+      const userHeaders: UserHeaders = {
+        'X-User-Id': fastifyRequest.user?.id,
+        'X-User-Email': fastifyRequest.user?.email,
+        'X-User-Name': fastifyRequest.user?.name,
+      };
+
+      const headers = this.buildHeaders(undefined, userHeaders);
+
+      const queryString = queryParams.toString();
+      const url = queryString
+        ? `${this.baseUrl}/artworks/me?${queryString}`
+        : `${this.baseUrl}/artworks/me`;
+
+      const response = await request(url, {
+        method: 'GET',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        headersTimeout: this.timeout,
+      });
+
+      if (response.statusCode !== 200) {
+        const errorBody = await response.body.text();
+        throw new Error(`Backend returned ${response.statusCode}: ${errorBody}`);
+      }
+
+      return await response.body.json();
+    } catch (error) {
+      throw new Error(`Failed to fetch user artworks from backend: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
 // Singleton instance
