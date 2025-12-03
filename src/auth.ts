@@ -11,7 +11,7 @@
  * - GET /auth/me
  * - GET /auth/check-availability
  *
- * Session validation is performed by calling the backend's /auth/me endpoint.
+ * Session validation is performed by calling the backend's /auth/session endpoint (Better Auth default).
  *
  * See:
  * - src/routes/auth.ts - Auth proxy routes

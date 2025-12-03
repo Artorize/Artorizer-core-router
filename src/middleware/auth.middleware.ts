@@ -25,7 +25,7 @@ declare module 'fastify' {
 const AUTH_CACHE_KEY = Symbol('authCache');
 
 /**
- * Validate session with backend /auth/get-session endpoint.
+ * Validate session with backend /auth/session endpoint (Better Auth default).
  * Caches the result on the request to avoid multiple roundtrips per request.
  */
 async function validateSession(
@@ -55,7 +55,7 @@ async function validateSession(
 
   const fetchPromise = (async () => {
     try {
-      const response = await fetch(`${config.backend.url}/auth/get-session`, {
+      const response = await fetch(`${config.backend.url}/auth/session`, {
         method: 'GET',
         headers,
       });

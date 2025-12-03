@@ -207,7 +207,7 @@ export async function authRoute(app: FastifyInstance) {
         headers['Cookie'] = cookieHeader;
       }
 
-      const response = await fetch(`${config.backend.url}/auth/get-session`, {
+      const response = await fetch(`${config.backend.url}/auth/session`, {
         method: 'GET',
         headers,
       });

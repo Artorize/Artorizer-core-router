@@ -215,7 +215,7 @@ When `AUTH_ENABLED=true`, authentication endpoints are proxied to the backend:
 - 7-day session duration with 1-day refresh window
 - httpOnly cookies for security (`better-auth.session_token`)
 - Secure cookies in production (HTTPS required)
-- Router validates sessions by calling backend's `/auth/validate-session` endpoint
+- Router validates sessions by calling backend's `/auth/session` endpoint (Better Auth default)
 
 ### POST /protect
 
