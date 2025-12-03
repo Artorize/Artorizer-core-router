@@ -93,6 +93,9 @@ Sign out and clear session cookie.
 #### GET /auth/me
 Get current authenticated user session.
 
+**Authentication**: Required
+- Must include `better-auth.session_token` cookie (automatically handled by browser)
+
 **Response (Authenticated):**
 ```json
 {
@@ -115,8 +118,10 @@ Alias for `/auth/me`.
 Check if email/username is available.
 
 **Query Parameters:**
-- `email`: Email to check
-- `username`: Username to check
+- `email` (string, optional): Email address to check availability
+- `username` (string, optional): Username to check availability
+
+*At least one parameter is required.*
 
 #### GET /auth/error
 Handle OAuth errors.
@@ -134,8 +139,8 @@ Get artwork history for logged-in user.
 **Authentication**: Required
 
 **Query Parameters:**
-- `limit`: Max items (default: 20)
-- `skip`: Pagination offset (default: 0)
+- `limit` (integer, optional): Maximum number of artworks to return (default: 20)
+- `skip` (integer, optional): Number of artworks to skip for pagination (default: 0)
 
 ---
 
