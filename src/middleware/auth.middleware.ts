@@ -55,7 +55,7 @@ async function validateSession(
 
   const fetchPromise = (async () => {
     try {
-      const response = await fetch(`${config.backend.url}/auth/session`, {
+      const response = await fetch(`${config.backend.url}/auth/get-session`, {
         method: 'GET',
         headers,
       });
