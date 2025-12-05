@@ -251,7 +251,14 @@ export class BackendService {
         'X-User-Name': fastifyRequest.user?.name,
       };
 
+      // Build headers including user context
       const headers = this.buildHeaders(undefined, userHeaders);
+
+      // Forward session cookie from original request for backend authentication
+      const cookieHeader = fastifyRequest.headers.cookie;
+      if (cookieHeader) {
+        headers['Cookie'] = cookieHeader;
+      }
 
       const queryString = queryParams.toString();
       const url = queryString
