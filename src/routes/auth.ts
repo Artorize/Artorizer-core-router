@@ -64,11 +64,12 @@ export async function authRoute(app: FastifyInstance) {
         reply.header('content-type', contentType);
       }
 
-      // Parse and send response body
-      const responseData = await response.json();
-      return reply.send(responseData);
+      // Forward raw response body to avoid content-type issues
+      const responseBody = await response.text();
+      return reply.send(responseBody);
     } catch (error) {
       request.log.error({ error }, 'Failed to proxy register request to backend');
+      reply.type('application/json');
       return reply.status(500).send({
         error: 'server_error',
         message: 'Failed to process registration request',
@@ -115,11 +116,12 @@ export async function authRoute(app: FastifyInstance) {
         reply.header('content-type', contentType);
       }
 
-      // Parse and send response body
-      const responseData = await response.json();
-      return reply.send(responseData);
+      // Forward raw response body to avoid content-type issues
+      const responseBody = await response.text();
+      return reply.send(responseBody);
     } catch (error) {
       request.log.error({ error }, 'Failed to proxy login request to backend');
+      reply.type('application/json');
       return reply.status(500).send({
         error: 'server_error',
         message: 'Failed to process login request',
@@ -172,16 +174,16 @@ export async function authRoute(app: FastifyInstance) {
         return reply.send();
       }
 
-      // For other status codes, try to parse body
+      // For other status codes, forward raw response body
       const contentType = response.headers.get('content-type');
-      if (contentType?.includes('application/json')) {
-        const responseData = await response.json();
-        return reply.send(responseData);
+      if (contentType) {
+        reply.header('content-type', contentType);
       }
-
-      return reply.send();
+      const responseBody = await response.text();
+      return reply.send(responseBody);
     } catch (error) {
       request.log.error({ error }, 'Failed to proxy logout request to backend');
+      reply.type('application/json');
       return reply.status(500).send({
         error: 'server_error',
         message: 'Failed to process logout request',
@@ -221,11 +223,12 @@ export async function authRoute(app: FastifyInstance) {
         reply.header('content-type', contentType);
       }
 
-      // Parse and send response body
-      const responseData = await response.json();
-      return reply.send(responseData);
+      // Forward raw response body to avoid content-type issues
+      const responseBody = await response.text();
+      return reply.send(responseBody);
     } catch (error) {
       request.log.error({ error }, 'Failed to proxy /auth/me request to backend');
+      reply.type('application/json');
       return reply.status(500).send({
         error: 'server_error',
         message: 'Failed to retrieve user information',
@@ -267,11 +270,12 @@ export async function authRoute(app: FastifyInstance) {
           reply.header('content-type', contentType);
         }
 
-        // Parse and send response body
-        const responseData = await response.json();
-        return reply.send(responseData);
+        // Forward raw response body to avoid content-type issues
+        const responseBody = await response.text();
+        return reply.send(responseBody);
       } catch (error) {
         request.log.error({ error }, 'Failed to proxy check-availability request to backend');
+        reply.type('application/json');
         return reply.status(500).send({
           error: 'server_error',
           message: 'Failed to check availability',
