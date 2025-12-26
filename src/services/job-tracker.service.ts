@@ -10,6 +10,14 @@ export interface JobProgress {
   details?: Record<string, any>;
 }
 
+export interface StepStatus {
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  duration?: number;
+  error?: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
 export interface ProcessorConfiguration {
   processors?: string[];
   watermark_strategy?: string;
@@ -32,6 +40,8 @@ export interface JobState {
   backend_artwork_id?: string;
   processor_config?: ProcessorConfiguration;
   progress?: JobProgress;
+  steps?: Record<string, StepStatus>;
+  current_step?: string;
   error?: {
     code: string;
     message: string;
@@ -109,6 +119,43 @@ export class JobTrackerService {
   }
 
   /**
+   * Initialize steps based on processor configuration
+   */
+  private initializeSteps(config: Partial<ProcessorConfiguration>): Record<string, StepStatus> {
+    const steps: Record<string, StepStatus> = {};
+
+    // Always include upload step
+    steps.upload = { status: 'queued' };
+
+    // Add protection layers
+    if (config.protection_layers) {
+      const layers = config.protection_layers;
+      if (layers.fawkes) {
+        steps.fawkes = { status: 'queued' };
+      }
+      if (layers.nightshade) {
+        steps.nightshade = { status: 'queued' };
+      }
+      if (layers.photoguard) {
+        steps.photoguard = { status: 'queued' };
+      }
+      if (layers.mist) {
+        steps.mist = { status: 'queued' };
+      }
+      if (layers.c2pa_manifest) {
+        steps.c2pa = { status: 'queued' };
+      }
+    }
+
+    // Add watermark step if configured
+    if (config.watermark_strategy && config.watermark_strategy !== 'none') {
+      steps.watermark = { status: 'queued' };
+    }
+
+    return steps;
+  }
+
+  /**
    * Track a new job submission with processor configuration
    */
   async trackJobSubmission(
@@ -125,11 +172,15 @@ export class JobTrackerService {
         total_steps: totalSteps,
       };
 
+      const steps = processorConfig ? this.initializeSteps(processorConfig) : { upload: { status: 'queued' as const } };
+
       const state: JobState = {
         job_id: jobId,
         status: 'processing',
         submitted_at: new Date().toISOString(),
         processor_config: config,
+        steps,
+        current_step: 'upload',
       };
 
       await this.redis.setex(
@@ -185,6 +236,85 @@ export class JobTrackerService {
   }
 
   /**
+   * Update individual step status
+   */
+  async updateStepStatus(
+    jobId: string,
+    stepName: string,
+    stepStatus: Partial<StepStatus>
+  ): Promise<void> {
+    try {
+      const existingState = await this.getJobState(jobId);
+
+      if (!existingState) {
+        // Job doesn't exist - create minimal state with this step
+        const steps: Record<string, StepStatus> = {};
+        steps[stepName] = {
+          status: stepStatus.status || 'processing',
+          started_at: stepStatus.started_at,
+          completed_at: stepStatus.completed_at,
+          duration: stepStatus.duration,
+          error: stepStatus.error,
+        };
+
+        const state: JobState = {
+          job_id: jobId,
+          status: 'processing',
+          submitted_at: new Date().toISOString(),
+          steps,
+          current_step: stepName,
+        };
+
+        await this.redis.setex(
+          `${this.KEY_PREFIX}${jobId}`,
+          this.TTL,
+          JSON.stringify(state)
+        );
+        return;
+      }
+
+      // Update existing step or create new one
+      const steps = existingState.steps || {};
+      const currentStepData = steps[stepName] || { status: 'queued' as const };
+
+      steps[stepName] = {
+        ...currentStepData,
+        ...stepStatus,
+      };
+
+      // Update current_step if this step is processing
+      const currentStep = stepStatus.status === 'processing' ? stepName : existingState.current_step;
+
+      // Check if all steps are completed or if any failed
+      const stepValues = Object.values(steps);
+      const allCompleted = stepValues.every((s) => s.status === 'completed');
+      const anyFailed = stepValues.some((s) => s.status === 'failed');
+
+      let jobStatus: 'processing' | 'completed' | 'failed' = existingState.status;
+      if (anyFailed) {
+        jobStatus = 'failed';
+      } else if (allCompleted && existingState.backend_artwork_id) {
+        jobStatus = 'completed';
+      }
+
+      const state: JobState = {
+        ...existingState,
+        steps,
+        current_step: currentStep,
+        status: jobStatus,
+      };
+
+      await this.redis.setex(
+        `${this.KEY_PREFIX}${jobId}`,
+        this.TTL,
+        JSON.stringify(state)
+      );
+    } catch (error) {
+      // Silent fail - not critical
+    }
+  }
+
+  /**
    * Update job state on completion
    */
   async updateJobCompletion(
@@ -204,6 +334,10 @@ export class JobTrackerService {
         backend_artwork_id: backendArtworkId,
         // Preserve progress for completed jobs (useful for debugging)
         ...(existingState?.progress && { progress: existingState.progress }),
+        // Preserve steps for completed jobs
+        ...(existingState?.steps && { steps: existingState.steps }),
+        ...(existingState?.current_step && { current_step: existingState.current_step }),
+        ...(existingState?.processor_config && { processor_config: existingState.processor_config }),
         ...(error && { error }),
       };
 

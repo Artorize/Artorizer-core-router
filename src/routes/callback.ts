@@ -40,6 +40,16 @@ interface ProgressCallbackPayload {
   details?: Record<string, any>;
 }
 
+interface StepCompletePayload {
+  job_id: string;
+  step: string;
+  status: 'processing' | 'completed' | 'failed';
+  duration?: number;
+  error?: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
 export async function callbackRoute(app: FastifyInstance) {
   /**
    * POST /callbacks/process-complete
@@ -196,6 +206,75 @@ export async function callbackRoute(app: FastifyInstance) {
 
         return reply.status(500).send({
           error: 'Failed to process progress callback',
+          detail: error.message,
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /callbacks/step-complete
+   * Receives step-level status updates from processor
+   */
+  app.post(
+    '/callbacks/step-complete',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        // Validate authorization header
+        const authHeader = request.headers.authorization;
+        const expectedToken = config.router.callbackAuthToken;
+
+        if (!authHeader || authHeader !== expectedToken) {
+          request.log.warn({ authHeader }, 'Unauthorized step callback attempt');
+          return reply.status(401).send({ error: 'Unauthorized' });
+        }
+
+        const payload = request.body as StepCompletePayload;
+
+        if (!payload.job_id) {
+          return reply.status(400).send({ error: 'Missing job_id in step payload' });
+        }
+
+        if (!payload.step) {
+          return reply.status(400).send({ error: 'Missing step in step payload' });
+        }
+
+        if (!payload.status) {
+          return reply.status(400).send({ error: 'Missing status in step payload' });
+        }
+
+        request.log.info(
+          {
+            job_id: payload.job_id,
+            step: payload.step,
+            status: payload.status,
+            duration: payload.duration,
+            error: payload.error,
+          },
+          'Received processor step update'
+        );
+
+        // Update step status in Redis
+        const jobTracker = getJobTrackerService();
+        await jobTracker.updateStepStatus(payload.job_id, payload.step, {
+          status: payload.status,
+          duration: payload.duration,
+          error: payload.error,
+          started_at: payload.started_at,
+          completed_at: payload.completed_at,
+        });
+
+        return reply.status(200).send({
+          received: true,
+          job_id: payload.job_id,
+          step: payload.step,
+          message: 'Step update received',
+        });
+      } catch (error: any) {
+        request.log.error(error, 'Error processing step callback');
+
+        return reply.status(500).send({
+          error: 'Failed to process step callback',
           detail: error.message,
         });
       }

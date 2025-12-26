@@ -62,6 +62,11 @@ export async function jobsRoute(app: FastifyInstance) {
               message: 'Job is currently being processed',
             };
 
+            // Include current step if available
+            if (jobState.current_step) {
+              response.current_step = jobState.current_step;
+            }
+
             // Include processor configuration if available
             if (jobState.processor_config) {
               response.processor_config = jobState.processor_config;
@@ -72,25 +77,44 @@ export async function jobsRoute(app: FastifyInstance) {
               response.progress = jobState.progress;
             }
 
+            // Include steps information if available
+            if (jobState.steps) {
+              response.steps = jobState.steps;
+            }
+
             return reply.status(200).send(response);
           } else if (jobState.status === 'failed') {
-            return reply.status(200).send({
+            const response: any = {
               job_id: jobState.job_id,
               status: 'failed',
               submitted_at: jobState.submitted_at,
               completed_at: jobState.completed_at,
               error: jobState.error,
-            });
+            };
+
+            // Include steps information if available
+            if (jobState.steps) {
+              response.steps = jobState.steps;
+            }
+
+            return reply.status(200).send(response);
           } else if (jobState.status === 'completed' && jobState.backend_artwork_id) {
             // Job completed, return with backend artwork ID
-            return reply.status(200).send({
+            const response: any = {
               job_id: jobState.job_id,
               status: 'completed',
               submitted_at: jobState.submitted_at,
               completed_at: jobState.completed_at,
               backend_artwork_id: jobState.backend_artwork_id,
               message: 'Job completed successfully',
-            });
+            };
+
+            // Include steps information if available
+            if (jobState.steps) {
+              response.steps = jobState.steps;
+            }
+
+            return reply.status(200).send(response);
           }
         }
 
@@ -165,6 +189,11 @@ export async function jobsRoute(app: FastifyInstance) {
             statusCode: 409,
           };
 
+          // Include current step if available
+          if (jobState.current_step) {
+            response.current_step = jobState.current_step;
+          }
+
           // Include processor configuration if available
           if (jobState.processor_config) {
             response.processor_config = jobState.processor_config;
@@ -175,17 +204,29 @@ export async function jobsRoute(app: FastifyInstance) {
             response.progress = jobState.progress;
           }
 
+          // Include steps information if available
+          if (jobState.steps) {
+            response.steps = jobState.steps;
+          }
+
           return reply.status(409).send(response);
         }
 
         if (jobState && jobState.status === 'failed') {
-          return reply.status(200).send({
+          const response: any = {
             job_id: jobState.job_id,
             status: 'failed',
             submitted_at: jobState.submitted_at,
             completed_at: jobState.completed_at,
             error: jobState.error,
-          });
+          };
+
+          // Include steps information if available
+          if (jobState.steps) {
+            response.steps = jobState.steps;
+          }
+
+          return reply.status(200).send(response);
         }
 
         // Use backend_artwork_id from jobState if available (completed jobs)
