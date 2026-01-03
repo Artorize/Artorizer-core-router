@@ -281,6 +281,139 @@ export class BackendService {
       throw new Error(`Failed to fetch user artworks from backend: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+
+  /**
+   * Update current user profile (username)
+   */
+  async updateUser(fastifyRequest: any, params: { username?: string }): Promise<any> {
+    try {
+      const body = params.username ? JSON.stringify({ username: params.username }) : undefined;
+      const baseHeaders: Record<string, string> = {};
+
+      if (body) {
+        baseHeaders['Content-Type'] = 'application/json';
+      }
+
+      // Extract user headers from request
+      const userHeaders: UserHeaders = {
+        'X-User-Id': fastifyRequest.user?.id,
+        'X-User-Email': fastifyRequest.user?.email,
+        'X-User-Name': fastifyRequest.user?.name,
+      };
+
+      const headers = this.buildHeaders(baseHeaders, userHeaders);
+
+      // Forward session cookie from original request for backend authentication
+      const cookieHeader = fastifyRequest.headers.cookie;
+      if (cookieHeader) {
+        headers['Cookie'] = cookieHeader;
+      }
+
+      const response = await request(`${this.baseUrl}/users/me`, {
+        method: 'PATCH',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        body,
+        bodyTimeout: this.timeout,
+        headersTimeout: this.timeout,
+      });
+
+      if (response.statusCode !== 200) {
+        const errorBody = await response.body.text();
+        if (response.statusCode === 409) {
+          throw new Error('Username already taken');
+        }
+        throw new Error(`Backend returned ${response.statusCode}: ${errorBody}`);
+      }
+
+      return await response.body.json();
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Username already taken') {
+        throw error;
+      }
+      throw new Error(`Failed to update user: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Delete a single artwork by ID
+   */
+  async deleteArtwork(fastifyRequest: any, artworkId: string): Promise<void> {
+    try {
+      // Extract user headers from request
+      const userHeaders: UserHeaders = {
+        'X-User-Id': fastifyRequest.user?.id,
+        'X-User-Email': fastifyRequest.user?.email,
+        'X-User-Name': fastifyRequest.user?.name,
+      };
+
+      const headers = this.buildHeaders(undefined, userHeaders);
+
+      // Forward session cookie from original request for backend authentication
+      const cookieHeader = fastifyRequest.headers.cookie;
+      if (cookieHeader) {
+        headers['Cookie'] = cookieHeader;
+      }
+
+      const response = await request(`${this.baseUrl}/artworks/${artworkId}`, {
+        method: 'DELETE',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        headersTimeout: this.timeout,
+      });
+
+      if (response.statusCode !== 200 && response.statusCode !== 204) {
+        const errorBody = await response.body.text();
+        if (response.statusCode === 404) {
+          throw new Error('Artwork not found');
+        }
+        if (response.statusCode === 403) {
+          throw new Error('You do not have permission to delete this artwork');
+        }
+        throw new Error(`Backend returned ${response.statusCode}: ${errorBody}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && (error.message === 'Artwork not found' || error.message.includes('permission'))) {
+        throw error;
+      }
+      throw new Error(`Failed to delete artwork: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Delete all artworks for current user
+   */
+  async deleteMyArtworks(fastifyRequest: any): Promise<any> {
+    try {
+      // Extract user headers from request
+      const userHeaders: UserHeaders = {
+        'X-User-Id': fastifyRequest.user?.id,
+        'X-User-Email': fastifyRequest.user?.email,
+        'X-User-Name': fastifyRequest.user?.name,
+      };
+
+      const headers = this.buildHeaders(undefined, userHeaders);
+
+      // Forward session cookie from original request for backend authentication
+      const cookieHeader = fastifyRequest.headers.cookie;
+      if (cookieHeader) {
+        headers['Cookie'] = cookieHeader;
+      }
+
+      const response = await request(`${this.baseUrl}/artworks/me`, {
+        method: 'DELETE',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        headersTimeout: this.timeout,
+      });
+
+      if (response.statusCode !== 200) {
+        const errorBody = await response.body.text();
+        throw new Error(`Backend returned ${response.statusCode}: ${errorBody}`);
+      }
+
+      return await response.body.json();
+    } catch (error) {
+      throw new Error(`Failed to delete user artworks: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
 // Singleton instance

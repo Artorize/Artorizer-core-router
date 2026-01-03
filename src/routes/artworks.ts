@@ -134,4 +134,94 @@ export async function artworksRoute(app: FastifyInstance) {
       }
     }
   );
+
+  /**
+   * DELETE /artworks/:id - Delete a single artwork by ID
+   *
+   * Authentication: Required
+   * - User must have valid session
+   * - User context is forwarded to backend for ownership verification
+   * - Backend verifies user owns the artwork before deletion
+   *
+   * Response:
+   * - 200 OK: Artwork deleted successfully
+   * - 401 Unauthorized: No valid session
+   * - 403 Forbidden: User does not own the artwork
+   * - 404 Not Found: Artwork not found
+   */
+  app.delete<{ Params: ArtworkParams }>(
+    '/artworks/:id',
+    {
+      preHandler: requireAuth,
+    },
+    async (request: FastifyRequest<{ Params: ArtworkParams }>, reply: FastifyReply) => {
+      try {
+        const { id } = request.params;
+
+        const backendService = getBackendService();
+        await backendService.deleteArtwork(request, id);
+
+        return reply.status(200).send({
+          message: 'Artwork deleted successfully',
+          artworkId: id,
+        });
+      } catch (error: any) {
+        request.log.error(error, 'Error deleting artwork');
+
+        if (error.message?.includes('not found') || error.message?.includes('404')) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Artwork not found',
+            statusCode: 404,
+          });
+        }
+
+        if (error.message?.includes('forbidden') || error.message?.includes('403')) {
+          return reply.status(403).send({
+            error: 'Forbidden',
+            message: 'You do not have permission to delete this artwork',
+            statusCode: 403,
+          });
+        }
+
+        return reply.status(500).send({
+          error: 'Internal server error',
+          statusCode: 500,
+        });
+      }
+    }
+  );
+
+  /**
+   * DELETE /artworks/me - Delete all artworks for current user
+   *
+   * Authentication: Required
+   * - User must have valid session
+   * - User context is forwarded to backend
+   * - Backend deletes all artworks owned by the authenticated user
+   *
+   * Response:
+   * - 200 OK: All artworks deleted successfully with count
+   * - 401 Unauthorized: No valid session
+   */
+  app.delete(
+    '/artworks/me',
+    {
+      preHandler: requireAuth,
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const backendService = getBackendService();
+        const result = await backendService.deleteMyArtworks(request);
+
+        return reply.status(200).send(result);
+      } catch (error: any) {
+        request.log.error(error, 'Error deleting user artworks');
+        return reply.status(500).send({
+          error: 'Internal server error',
+          statusCode: 500,
+        });
+      }
+    }
+  );
 }

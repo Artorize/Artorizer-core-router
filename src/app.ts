@@ -8,6 +8,7 @@ import { jobsRoute } from './routes/jobs';
 import { healthRoute } from './routes/health';
 import { authRoute } from './routes/auth';
 import { artworksRoute } from './routes/artworks';
+import { usersRoute } from './routes/users';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -70,6 +71,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.register(callbackRoute);
   app.register(jobsRoute);
   app.register(artworksRoute);
+  app.register(usersRoute);
 
   // Register auth proxy routes if enabled
   if (config.auth.enabled) {
