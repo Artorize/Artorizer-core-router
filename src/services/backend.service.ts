@@ -414,6 +414,77 @@ export class BackendService {
       throw new Error(`Failed to delete user artworks: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+
+  /**
+   * Get credit balance for authenticated user
+   */
+  async getCredits(fastifyRequest: any): Promise<{ userId: string; balance: number; tier: string }> {
+    try {
+      const userHeaders: UserHeaders = {
+        'X-User-Id': fastifyRequest.user?.id,
+        'X-User-Email': fastifyRequest.user?.email,
+        'X-User-Name': fastifyRequest.user?.name,
+      };
+      const headers = this.buildHeaders(undefined, userHeaders);
+      const cookieHeader = fastifyRequest.headers.cookie;
+      if (cookieHeader) {
+        headers['Cookie'] = cookieHeader;
+      }
+
+      const response = await request(`${this.baseUrl}/credits/me`, {
+        method: 'GET',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        headersTimeout: this.timeout,
+      });
+
+      if (response.statusCode !== 200) {
+        const errorBody = await response.body.text();
+        throw new Error(`Backend returned ${response.statusCode}: ${errorBody}`);
+      }
+
+      return await response.body.json() as { userId: string; balance: number; tier: string };
+    } catch (error) {
+      throw new Error(`Failed to fetch credits: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Deduct credits for a protection job
+   */
+  async deductCredits(userHeaders: UserHeaders, amount: number = 1, metadata?: { jobId?: string }): Promise<{ success: boolean; balance: number; deducted: number }> {
+    try {
+      const body = JSON.stringify({ amount, metadata });
+      const baseHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (this.internalApiKey) {
+        baseHeaders['X-Internal-Key'] = this.internalApiKey;
+      }
+      const headers = this.buildHeaders(baseHeaders, userHeaders);
+
+      const response = await request(`${this.baseUrl}/credits/deduct`, {
+        method: 'POST',
+        headers,
+        body,
+        bodyTimeout: this.timeout,
+        headersTimeout: this.timeout,
+      });
+
+      if (response.statusCode === 402) {
+        const data = await response.body.json() as { error: string; balance: number };
+        return { success: false, balance: data.balance, deducted: 0 };
+      }
+
+      if (response.statusCode !== 200) {
+        const errorBody = await response.body.text();
+        throw new Error(`Backend returned ${response.statusCode}: ${errorBody}`);
+      }
+
+      return await response.body.json() as { success: boolean; balance: number; deducted: number };
+    } catch (error) {
+      throw new Error(`Failed to deduct credits: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
 // Singleton instance

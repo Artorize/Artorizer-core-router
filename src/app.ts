@@ -8,6 +8,7 @@ import { jobsRoute } from './routes/jobs';
 import { healthRoute } from './routes/health';
 import { authRoute } from './routes/auth';
 import { artworksRoute } from './routes/artworks';
+import { creditsRoute } from './routes/credits';
 import { usersRoute } from './routes/users';
 import { feedbackRoute } from './routes/feedback';
 
@@ -72,6 +73,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.register(callbackRoute);
   app.register(jobsRoute);
   app.register(artworksRoute);
+  app.register(creditsRoute);
   app.register(usersRoute);
   app.register(feedbackRoute);
 

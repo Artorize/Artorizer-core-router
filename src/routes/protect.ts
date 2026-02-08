@@ -162,6 +162,9 @@ export async function protectRoute(app: FastifyInstance) {
 
       const validatedPayload = validationResult.data;
 
+      // Initialize backend service (needed for duplicate check and credits)
+      const backendService = getBackendService();
+
       // Check for duplicates (if we have checksum or title+artist)
       const duplicateService = getDuplicateService();
       const duplicateCheck = await duplicateService.checkExists({
@@ -181,6 +184,27 @@ export async function protectRoute(app: FastifyInstance) {
         });
       }
 
+      // Check and deduct credits for authenticated users
+      if (request.user) {
+        try {
+          const creditResult = await backendService.deductCredits(userHeaders!, 1, { jobId: 'pending' });
+          if (!creditResult.success) {
+            return reply.status(402).send({
+              error: 'Insufficient credits',
+              balance: creditResult.balance,
+              message: `You need at least 1 credit to protect an image. Current balance: ${creditResult.balance}`,
+            });
+          }
+          request.log.info(
+            { remaining_credits: creditResult.balance },
+            'Credits deducted for protection job'
+          );
+        } catch (error: any) {
+          request.log.warn({ error: error.message }, 'Credit check failed, allowing request');
+          // Allow request to proceed if credit system is unavailable (graceful degradation)
+        }
+      }
+
       // Generate UUID for job
       const jobId = crypto.randomUUID();
 
@@ -195,7 +219,6 @@ export async function protectRoute(app: FastifyInstance) {
       // - Cryptographically random (16-character secure token)
       // - Associated with this job for audit purposes
       // The processor will use this token in the Authorization header when uploading results
-      const backendService = getBackendService();
       const tokenData = await backendService.generateToken({
         source: 'router',
         jobId: jobId,
