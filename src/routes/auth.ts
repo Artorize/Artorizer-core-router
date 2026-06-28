@@ -37,13 +37,22 @@ export async function authRoute(app: FastifyInstance) {
         name: request.body.name || request.body.username,
       };
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': request.ip,
+        'X-Request-Id': request.id,
+      };
+
+      // Forward Origin so Better Auth's CSRF/origin check passes.
+      // Without it the backend rejects with 403 MISSING_OR_NULL_ORIGIN.
+      // The browser's Origin (e.g. https://artorizer.com) must be in the backend's trustedOrigins.
+      if (request.headers.origin) {
+        headers['Origin'] = request.headers.origin;
+      }
+
       const response = await fetch(`${config.backend.url}/auth/sign-up/email`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Forwarded-For': request.ip,
-          'X-Request-Id': request.id,
-        },
+        headers,
         body: JSON.stringify(betterAuthBody),
       });
 
@@ -89,13 +98,22 @@ export async function authRoute(app: FastifyInstance) {
         password: request.body.password,
       };
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Forwarded-For': request.ip,
+        'X-Request-Id': request.id,
+      };
+
+      // Forward Origin so Better Auth's CSRF/origin check passes.
+      // Without it the backend rejects with 403 MISSING_OR_NULL_ORIGIN.
+      // The browser's Origin (e.g. https://artorizer.com) must be in the backend's trustedOrigins.
+      if (request.headers.origin) {
+        headers['Origin'] = request.headers.origin;
+      }
+
       const response = await fetch(`${config.backend.url}/auth/sign-in/email`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Forwarded-For': request.ip,
-          'X-Request-Id': request.id,
-        },
+        headers,
         body: JSON.stringify(betterAuthBody),
       });
 
